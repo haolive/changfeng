@@ -1,0 +1,34 @@
+# 纯去广告 Clash 配置（无名的人）
+# 不包含任何代理节点，仅用于广告拦截
+
+
+# 规则提供者
+rule-providers:
+  oisd_big:
+    type: http
+    behavior: domain
+    format: text
+    path: "./rule_provider/oisd_big.txt"
+    url: https://github.boki.moe/https://raw.githubusercontent.com/zzzt27/clash-AdsBlock/main/oisd_big.txt
+    interval: 86400
+
+  AWAvenue:
+    type: http
+    behavior: domain
+    format: yaml
+    path: "./rule_provider/AWAvenue-Ads-Rule-Clash.yaml"
+    url: https://github.boki.moe/https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Clash.yaml
+    interval: 86400
+
+# 代理组
+proxy-groups:
+  - name: "🌐 漏网之鱼"
+    type: select
+    proxies:
+      - DIRECT
+
+# 规则
+rules:
+  - RULE-SET,AWAvenue,REJECT
+  - RULE-SET,oisd_big,REJECT
+  - MATCH,DIRECT
