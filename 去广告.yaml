@@ -4,14 +4,6 @@
 
 # 规则提供者
 rule-providers:
-  oisd_big:
-    type: http
-    behavior: domain
-    format: text
-    path: "./rule_provider/oisd_big.txt"
-    url: https://github.boki.moe/https://raw.githubusercontent.com/zzzt27/clash-AdsBlock/main/oisd_big.txt
-    interval: 86400
-
   AWAvenue:
     type: http
     behavior: domain
@@ -30,5 +22,4 @@ proxy-groups:
 # 规则
 rules:
   - RULE-SET,AWAvenue,REJECT
-  - RULE-SET,oisd_big,REJECT
   - MATCH,DIRECT
