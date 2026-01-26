@@ -4,7 +4,7 @@
 
 rule-providers:
   AWAvenue:
-    输入: http
+    type:http
     behavior: domain
     format: yaml
     url: https://github.boki.moe/https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Clash.yaml
@@ -14,7 +14,7 @@ rule-providers:
 # 代理组
 proxy-groups:
   - name: "🌐 漏网之鱼"
-    type: select
+    type:select
     proxies:
       - DIRECT
 
