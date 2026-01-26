@@ -11,5 +11,13 @@ rule-providers:
     path: ./ruleset/adblock_reject.yaml
     interval: 120
     
+# 代理组
+proxy-groups:
+  - name: "🌐 漏网之鱼"
+    type: select
+    proxies:
+      - DIRECT
+
+# 规则
 rules:
   - RULE-SET,AWAvenue,REJECT
