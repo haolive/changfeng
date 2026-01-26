@@ -3,8 +3,8 @@
 
 
 rule-providers:
-  adblock:
-    type: http
+  AWAvenue:
+    输入: http
     behavior: domain
     format: yaml
     url: https://github.boki.moe/https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Clash.yaml
@@ -12,4 +12,4 @@ rule-providers:
     interval: 120
     
 rules:
-  - RULE-SET,adblock,REJECT
+  - RULE-SET,AWAvenue,REJECT
