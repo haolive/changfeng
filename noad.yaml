@@ -2,19 +2,19 @@
 # 不包含任何代理节点，仅用于广告拦截
 
 
+# 规则提供者
 rule-providers:
   AWAvenue:
-    type:http
+    type: http
     behavior: domain
     format: yaml
     url: https://github.boki.moe/https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Clash.yaml
-    path: ./ruleset/adblock_reject.yaml
     interval: 120
-    
+
 # 代理组
 proxy-groups:
   - name: "🌐 漏网之鱼"
-    type:select
+    type: select
     proxies:
       - DIRECT
 
