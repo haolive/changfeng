@@ -21,3 +21,4 @@ proxy-groups:
 # 规则
 rules:
   - RULE-SET,AWAvenue,REJECT
+  - MATCH,DIRECT
