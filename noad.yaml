@@ -10,7 +10,7 @@ rule-providers:
     format: yaml
     path: ./rule_provider/AWAvenue-Ads-Rule-Clash.yaml
     url: https://github.boki.moe/https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Clash.yaml
-    interval: 120
+    interval: 7200
 
 # 代理组
 proxy-groups:
