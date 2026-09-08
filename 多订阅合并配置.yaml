@@ -1,0 +1,274 @@
+# ============================================================
+# 多订阅合并配置（Clash Verge Rev / Mihomo）
+# ------------------------------------------------------------
+# 用法：
+#   1. Clash Verge Rev -> 订阅 -> 打开配置目录，把本文件放入 profiles 目录
+#       或直接「新建配置 -> 本地配置 -> 选择本文件导入」
+#   2. 右键该配置卡片 -> 启用
+#   3. 首次使用请打开「节点选择/自动选择」分组，等待健康检查完成后选择可用节点
+#
+# 特性：
+#   * 5 个订阅通过 proxy-providers 合并，节点名前缀 S1~S5 区分来源
+#   * provider 层 exclude-filter 自动剔除免费池的"官网/剩余流量/过期"等垃圾节点
+#   * GEOSITE/GEOIP 分流规则（使用内置 geo 数据库，无需额外下载规则集）
+#   * DNS 走 DoH + fake-ip，国内域名直连解析
+# ============================================================
+
+# ---------------- 订阅节点来源 ----------------
+# 节点前缀映射：
+#   S1 = ripaojiedian/freenode
+#   S2 = shaoyouvip/free
+#   S3 = sunmiao4458/free-proxy-airport
+#   S4 = zhuhaiuk/free-nodes
+#   S5 = sub.445569.xyz
+#   S6 = kooker/FreeSubsCheck
+proxy-providers:
+  s1-freenode:
+    type: http
+    path: ./providers/s1_freenode.yaml
+    url: "https://github.boki.moe/https://raw.github.com/ripaojiedian/freenode/main/clash"
+    interval: 3600            # 更新间隔（秒），免费池变动频繁，可按需调小（如 1800）
+    health-check:
+      enable: true
+      url: "https://www.gstatic.com/generate_204"
+      interval: 300
+      timeout: 3000
+      lazy: true
+    override:
+      additional-prefix: "S1 |"
+      skip-cert-verify: true   # 免费节点证书常不可信，跳过校验
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+  s2-shaoyouvip:
+    type: http
+    path: ./providers/s2_shaoyouvip.yaml
+    url: "https://github.boki.moe/https://raw.githubusercontent.com/shaoyouvip/free/main/mihomo.yaml"
+    interval: 3600
+    health-check:
+      enable: true
+      url: "https://www.gstatic.com/generate_204"
+      interval: 300
+      timeout: 3000
+      lazy: true
+    override:
+      additional-prefix: "S2 |"
+      skip-cert-verify: true
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+  s3-free-proxy-airport:
+    type: http
+    path: ./providers/s3_free_proxy_airport.yaml
+    url: "https://sunmiao4458.github.io/free-proxy-airport/clash.yaml"
+    interval: 3600
+    health-check:
+      enable: true
+      url: "https://www.gstatic.com/generate_204"
+      interval: 300
+      timeout: 3000
+      lazy: true
+    override:
+      additional-prefix: "S3 |"
+      skip-cert-verify: true
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+  s4-free-nodes:
+    type: http
+    path: ./providers/s4_free_nodes.yaml
+    url: "https://github.boki.moe/https://raw.githubusercontent.com/zhuhaiuk/free-nodes/main/clash_config.yaml"
+    interval: 3600
+    health-check:
+      enable: true
+      url: "https://www.gstatic.com/generate_204"
+      interval: 300
+      timeout: 3000
+      lazy: true
+    override:
+      additional-prefix: "S4 |"
+      skip-cert-verify: true
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+  s5-sub445569:
+    type: http
+    path: ./providers/s5_sub445569.yaml
+    url: "https://sub.445569.xyz/"
+    interval: 3600
+    health-check:
+      enable: true
+      url: "https://www.gstatic.com/generate_204"
+      interval: 300
+      timeout: 3000
+      lazy: true
+    override:
+      additional-prefix: "S5 |"
+      skip-cert-verify: true
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+  s6-FreeSubsCheck:
+    type: http
+    path: ./providers/s6_FreeSubsCheck.yaml
+    url: "https://github.boki.moe/https://raw.githubusercontent.com/kooker/FreeSubsCheck/main/mihomo.yaml"
+    interval: 3600
+    health-check:
+      enable: true
+      url: "https://www.gstatic.com/generate_204"
+      interval: 300
+      timeout: 3000
+      lazy: true
+    override:
+      additional-prefix: "S6 |"
+      skip-cert-verify: true
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+
+# ---------------- 全局配置 ----------------
+mixed-port: 7890
+allow-lan: false
+bind-address: '*'
+mode: rule
+log-level: info
+ipv6: true
+unified-delay: true
+tcp-concurrent: true
+keep-alive-interval: 15
+global-client-fingerprint: chrome
+find-process-mode: strict
+geo-auto-update: true
+geo-update-interval: 24
+geox-url:
+  geoip: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"
+  geosite: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
+  mmdb: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"
+  asn: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
+profile:
+  store-selected: true    # 记忆手动选择的节点
+  store-fake-ip: false
+
+# 如启用 TUN（透明代理，可选）：将下方注释的 tun 块取消注释并 enable: true
+# tun:
+#   enable: false
+#   stack: mixed
+#   auto-route: true
+#   auto-detect-interface: true
+#   dns-hijack:
+#     - "any:53"
+
+# ---------------- DNS ----------------
+dns:
+  enable: true
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - '+.lan'
+    - '+.local'
+    - '+.msftconnecttest.com'
+    - '+.msftncsi.com'
+    - "localhost.ptlogin2.qq.com"
+    - "localhost.sec.qq.com"
+    - "localhost.work.weixin.qq.com"
+    - '+.weixin.qq.com'
+    - '+.wechat.com'
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  nameserver:
+    - "https://doh.pub/dns-query"
+    - "https://dns.alidns.com/dns-query"
+    - 114.114.114.114
+  fallback:
+    - "https://1.1.1.1/dns-query"
+    - "https://8.8.8.8/dns-query"
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    geosite:
+      - cn
+
+# ---------------- 代理组 ----------------
+# 说明：所有 `include-all: true` 的组会自动包含全部 5 个订阅的节点
+proxy-groups:
+  # ==== 基础策略组 ====
+  - name: 节点选择
+    type: select
+    proxies:
+      - 自动选择
+      - 手动选择
+      - 负载均衡
+    default-selected: 自动选择
+    url: "https://www.gstatic.com/generate_204"
+    interval: 300
+    timeout: 3000
+    lazy: true
+    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/adjust.svg"
+  - name: 自动选择
+    type: url-test
+    include-all: true
+    tolerance: 50
+    url: "https://www.gstatic.com/generate_204"
+    interval: 300
+    timeout: 3000
+    max-failed-times: 3
+    lazy: true
+    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/speed.svg"
+  - name: 手动选择
+    type: select
+    include-all: true
+    url: "https://www.gstatic.com/generate_204"
+    interval: 300
+    timeout: 3000
+    lazy: true
+    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/guard.svg"
+  - name: 负载均衡
+    type: load-balance
+    strategy: sticky-sessions
+    include-all: true
+    url: "https://www.gstatic.com/generate_204"
+    interval: 300
+    timeout: 3000
+    max-failed-times: 3
+    lazy: true
+    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/balance.svg"
+
+  # ==== 分流策略组 ====
+  - name: 直连
+    type: select
+    proxies:
+      - DIRECT
+      - 节点选择
+    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/link.svg"
+  - name: 广告过滤
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/bug.svg"
+  - name: 漏网之鱼
+    type: select
+    proxies:
+      - 节点选择
+      - 自动选择
+      - 负载均衡
+      - 直连
+    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/fish.svg"
+
+# ---------------- 分流规则（从上到下匹配，规则后可自定义增删） ----------------
+rules:
+  # 广告与隐私拦截
+  - "GEOSITE,category-ads-all,广告过滤"
+  # 局域网直连
+  - "GEOIP,LAN,直连,no-resolve"
+  # 国内流量直连
+  - "GEOSITE,cn,直连"
+  - "GEOIP,CN,直连,no-resolve"
+  - "GEOSITE,microsoft@cn,直连"
+  - "GEOSITE,apple,直连"
+  - "GEOSITE,category-games@cn,直连"
+  # 国外服务分流
+  - "GEOSITE,telegram,节点选择"
+  - "GEOSITE,openai,节点选择"
+  - "GEOSITE,google,节点选择"
+  - "GEOSITE,netflix,节点选择"
+  - "GEOSITE,youtube,节点选择"
+  - "GEOSITE,disney,节点选择"
+  - "GEOSITE,tiktok,节点选择"
+  - "GEOSITE,steam,节点选择"
+  - "GEOSITE,epicgames,节点选择"
+  - "GEOSITE,category-games,节点选择"
+  # 国外网站兜底
+  - "GEOSITE,geolocation-!cn,节点选择"
+  # 最后兜底
+  - "MATCH,漏网之鱼"
