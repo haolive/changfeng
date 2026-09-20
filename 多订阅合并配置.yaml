@@ -8,9 +8,10 @@
 #   3. 首次使用请打开「节点选择/自动选择」分组，等待健康检查完成后选择可用节点
 #
 # 特性：
-#   * 5 个订阅通过 proxy-providers 合并，节点名前缀 S1~S5 区分来源
+#   * 6 个订阅通过 proxy-providers 合并，节点名前缀 S1~S6 区分来源
 #   * provider 层 exclude-filter 自动剔除免费池的"官网/剩余流量/过期"等垃圾节点
 #   * GEOSITE/GEOIP 分流规则（使用内置 geo 数据库，无需额外下载规则集）
+#   * AWAvenue 广告规则集（rule-providers 远程拉取，自动更新，743 条国内 App 广告域名）
 #   * DNS 走 DoH + fake-ip，国内域名直连解析
 # ============================================================
 
@@ -113,6 +114,23 @@ proxy-providers:
       additional-prefix: "S6 |"
       skip-cert-verify: true
     exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+
+# ---------------- 广告规则集 ----------------
+# 社区维护的国内 App 广告域名清单（开屏/信息流/SDK），与内置 GEOSITE,category-ads-all 互补：
+# 前者偏国外广告域名，本规则集偏国内。共 743 条纯域名规则，无 IP-CIDR，不影响 fake-ip 解析。
+# 更新频率高（数天一次），interval 一天拉一次足够；拉取失败会自动沿用本地缓存文件。
+rule-providers:
+  AWAvenue-Ads:
+    type: http
+    behavior: classical      # 文件是 payload 列表，每条自带 DOMAIN/DOMAIN-SUFFIX 前缀
+    format: yaml
+    url: "https://github.boki.moe/https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Clash-Classical.yaml"
+    # 备选镜像（boki 不可用时替换 url）：
+    #   https://cdn.jsdelivr.net/gh/TG-Twilight/AWAvenue-Ads-Rule@main/Filters/AWAvenue-Ads-Rule-Clash-Classical.yaml
+    path: ./ruleset/AWAvenue-Ads-Rule.yaml
+    interval: 86400
+    size-limit: 1048576      # 防异常响应写入超大文件
+    # proxy: DIRECT          # 拉取本规则集时使用的出站；默认直连，直连不通再改成「节点选择」
 
 # ---------------- 全局配置 ----------------
 mixed-port: 7890
@@ -247,8 +265,9 @@ proxy-groups:
 
 # ---------------- 分流规则（从上到下匹配，规则后可自定义增删） ----------------
 rules:
-  # 广告与隐私拦截
+  # 广告与隐私拦截（必须排在 GEOIP,CN / GEOSITE,cn 直连之前，否则国内广告域名会先被直连吃掉）
   - "GEOSITE,category-ads-all,广告过滤"
+  - "RULE-SET,AWAvenue-Ads,广告过滤"
   # 局域网直连
   - "GEOIP,LAN,直连,no-resolve"
   # 国内流量直连
