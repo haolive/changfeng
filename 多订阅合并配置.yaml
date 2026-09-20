@@ -14,7 +14,7 @@
 #   * 6 个订阅通过 proxy-providers 合并，节点名前缀 S1~S6 区分来源
 #   * provider 层 exclude-filter 自动剔除免费池的"官网/剩余流量/过期"等垃圾节点
 #   * GEOSITE/GEOIP 分流规则（使用内置 geo 数据库，无需额外下载规则集）
-#   * AWAvenue 广告规则集（rule-providers 远程拉取，自动更新，743 条国内 App 广告域名）
+#   * AWAvenue 广告规则集（rule-providers 远程拉取，自动更新，952 条国内 App 广告域名）
 #     —— 该 provider 名字带【配置已加载】前缀，用作启动日志的中文标记，详见「用法」第 4 条
 #   * 所有 provider 走 proxy: DIRECT 拉取 —— provider 拉取请求会进规则引擎、落到节点上，
 #     节点一死订阅和规则集就一起拉不动（日志实证），故让拉取与节点健康度解耦
@@ -46,7 +46,7 @@ proxy-providers:
     override:
       additional-prefix: "S1 |"
       skip-cert-verify: true   # 免费节点证书常不可信，跳过校验
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
   s2-shaoyouvip:
     type: http
     path: ./providers/s2_shaoyouvip.yaml
@@ -62,7 +62,7 @@ proxy-providers:
     override:
       additional-prefix: "S2 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
   s3-free-proxy-airport:
     type: http
     path: ./providers/s3_free_proxy_airport.yaml
@@ -78,7 +78,7 @@ proxy-providers:
     override:
       additional-prefix: "S3 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
   s4-free-nodes:
     type: http
     path: ./providers/s4_free_nodes.yaml
@@ -94,12 +94,12 @@ proxy-providers:
     override:
       additional-prefix: "S4 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
   s5-sub445569:
     type: http
     path: ./providers/s5_sub445569.yaml
     url: "https://sub.445569.xyz/"
-    interval: 3600
+    interval: 1800            # 该源节点轮换快（实测一小时里 17->29 个），缩短到 30 分钟
     proxy: DIRECT             # 实测直连 262ms、200/192696 字节，与缓存一致
     # ⚠ 该源按 User-Agent 分流：带 clash UA 才返回 Clash 配置（192696 字节），
     #   不带 UA 只返回 base64 订阅（17428 字节）。所以别给它加 user-agent 覆盖项。
@@ -112,12 +112,13 @@ proxy-providers:
     override:
       additional-prefix: "S5 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
   s6-FreeSubsCheck:
     type: http
     path: ./providers/s6_FreeSubsCheck.yaml
     url: "https://github.boki.moe/https://raw.githubusercontent.com/kooker/FreeSubsCheck/main/mihomo.yaml"
-    interval: 3600
+    interval: 1800            # 该源是「可用性检测」仓库，只留当时通过的节点、轮换很快
+                              #（实测一小时里 1->7 个），所以比别的源拉得勤一些
     proxy: DIRECT
     health-check:
       enable: true
@@ -128,17 +129,18 @@ proxy-providers:
     override:
       additional-prefix: "S6 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
 
 # ---------------- 广告规则集 ----------------
 # 社区维护的国内 App 广告域名清单（开屏/信息流/SDK），与内置 GEOSITE,category-ads-all 互补：
-# 前者偏国外广告域名，本规则集偏国内。共 743 条纯域名规则，无 IP-CIDR，不影响 fake-ip 解析。
+# 前者偏国外广告域名，本规则集偏国内。共 952 条纯域名规则（DOMAIN 936 / DOMAIN-SUFFIX 12 /
+# DOMAIN-KEYWORD 4），无 IP-CIDR，不影响 fake-ip 解析。
 # 更新频率高（数天一次），interval 一天拉一次足够；拉取失败会自动沿用本地缓存文件。
 rule-providers:
   # 名字里的【配置已加载】是给日志看的中文标记：内核启动/重载时会打印
   #   Start initial provider 【配置已加载】AWAvenue广告规则
   # 方便一眼确认"本次配置已开始加载"。改名时记得同步改 rules 里那条 RULE-SET。
-  【配置已加载】AWAvenue广告规则:
+  秋风AWAvenue广告规则:
     type: http
     behavior: classical      # 文件是 payload 列表，每条自带 DOMAIN/DOMAIN-SUFFIX 前缀
     format: yaml
@@ -149,7 +151,33 @@ rule-providers:
     interval: 86400
     size-limit: 1048576      # 防异常响应写入超大文件
     proxy: DIRECT            # 拉取走直连，理由同 proxy-providers：别被死节点拖住
-
+  Hyper误杀例外:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.boki.moe/https://github.com/Lynricsy/HyperADRules/releases/latest/download/hyper_adrules_allow.mrs
+    path: ./ruleset/hyper_adrules_allow.mrs
+    interval: 86400
+    size-limit: 2097152
+    proxy: DIRECT
+  Hyper广告、跟踪域名:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://445569.pages.dev/https://github.com/Lynricsy/HyperADRules/releases/latest/download/hyper_adrules_ads.mrs
+    path: ./ruleset/hyper_adrules_ads.mrs
+    interval: 86400
+    size-limit: 2097152
+    proxy: DIRECT
+  Hyper恶意、钓鱼域名:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://445569.pages.dev/https://github.com/Lynricsy/HyperADRules/releases/latest/download/hyper_adrules_malware.mrs
+    path: ./ruleset/hyper_adrules_malware.mrs
+    interval: 86400
+    size-limit: 2097152
+    proxy: DIRECT
 # ---------------- 全局配置 ----------------
 mixed-port: 7890
 allow-lan: false
@@ -292,8 +320,11 @@ proxy-groups:
 # ---------------- 分流规则（从上到下匹配，规则后可自定义增删） ----------------
 rules:
   # 广告与隐私拦截（必须排在 GEOIP,CN / GEOSITE,cn 直连之前，否则国内广告域名会先被直连吃掉）
+  - "RULE-SET,Hyper误杀例外,PASS"
   - "GEOSITE,category-ads-all,广告过滤"
-  - "RULE-SET,【配置已加载】AWAvenue广告规则,广告过滤"
+  - "RULE-SET,秋风AWAvenue广告规则,广告过滤"
+  - "RULE-SET,Hyper广告、跟踪域名,广告过滤"
+  - "RULE-SET,Hyper恶意、钓鱼域名,广告过滤"
   # 镜像直连（订阅、规则集、geo 数据库都从这里拉，避免绕道节点被拖死）
   # jsdelivr 实测直连 97ms、下载 1.3s，绕节点纯属浪费（geox-url 也依赖它）
   - "DOMAIN-SUFFIX,boki.moe,直连"
@@ -304,7 +335,7 @@ rules:
   - "GEOSITE,cn,直连"
   - "GEOIP,CN,直连,no-resolve"
   - "GEOSITE,microsoft@cn,直连"
-  - "GEOSITE,apple,直连"
+  - "GEOSITE,apple-cn,直连"
   - "GEOSITE,category-games@cn,直连"
   # 国外服务分流
   - "GEOSITE,telegram,节点选择"
