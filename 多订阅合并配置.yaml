@@ -339,6 +339,7 @@ rules:
   - "GEOSITE,category-games@cn,直连"
   # 国外服务分流
   - "GEOSITE,telegram,节点选择"
+  - "GEOSITE,gemini,节点选择"
   - "GEOSITE,openai,节点选择"
   - "GEOSITE,google,节点选择"
   - "GEOSITE,netflix,节点选择"
