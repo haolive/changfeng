@@ -6,12 +6,16 @@
 #       或直接「新建配置 -> 本地配置 -> 选择本文件导入」
 #   2. 右键该配置卡片 -> 启用
 #   3. 首次使用请打开「节点选择/自动选择」分组，等待健康检查完成后选择可用节点
+#   4. 确认「本次配置是否已开始加载」：日志里出现下面这一行就说明加载了（中文标记，方便一眼认出）
+#        Start initial provider 【配置已加载】AWAvenue广告规则
+#      —— 这行是 rule-provider 初始化时内核打印的，名字里的【配置已加载】前缀纯为提示用
 #
 # 特性：
 #   * 6 个订阅通过 proxy-providers 合并，节点名前缀 S1~S6 区分来源
 #   * provider 层 exclude-filter 自动剔除免费池的"官网/剩余流量/过期"等垃圾节点
 #   * GEOSITE/GEOIP 分流规则（使用内置 geo 数据库，无需额外下载规则集）
 #   * AWAvenue 广告规则集（rule-providers 远程拉取，自动更新，743 条国内 App 广告域名）
+#     —— 该 provider 名字带【配置已加载】前缀，用作启动日志的中文标记，详见「用法」第 4 条
 #   * 所有 provider 走 proxy: DIRECT 拉取 —— provider 拉取请求会进规则引擎、落到节点上，
 #     节点一死订阅和规则集就一起拉不动（日志实证），故让拉取与节点健康度解耦
 #   * DNS 走 DoH + fake-ip，国内域名直连解析
@@ -64,6 +68,7 @@ proxy-providers:
     path: ./providers/s3_free_proxy_airport.yaml
     url: "https://sunmiao4458.github.io/free-proxy-airport/clash.yaml"
     interval: 3600
+    proxy: DIRECT             # 实测直连 199ms、200/18101 字节，与节点拉取的缓存字节数一致
     health-check:
       enable: true
       url: "https://www.gstatic.com/generate_204"
@@ -95,6 +100,9 @@ proxy-providers:
     path: ./providers/s5_sub445569.yaml
     url: "https://sub.445569.xyz/"
     interval: 3600
+    proxy: DIRECT             # 实测直连 262ms、200/192696 字节，与缓存一致
+    # ⚠ 该源按 User-Agent 分流：带 clash UA 才返回 Clash 配置（192696 字节），
+    #   不带 UA 只返回 base64 订阅（17428 字节）。所以别给它加 user-agent 覆盖项。
     health-check:
       enable: true
       url: "https://www.gstatic.com/generate_204"
@@ -127,7 +135,10 @@ proxy-providers:
 # 前者偏国外广告域名，本规则集偏国内。共 743 条纯域名规则，无 IP-CIDR，不影响 fake-ip 解析。
 # 更新频率高（数天一次），interval 一天拉一次足够；拉取失败会自动沿用本地缓存文件。
 rule-providers:
-  AWAvenue-Ads:
+  # 名字里的【配置已加载】是给日志看的中文标记：内核启动/重载时会打印
+  #   Start initial provider 【配置已加载】AWAvenue广告规则
+  # 方便一眼确认"本次配置已开始加载"。改名时记得同步改 rules 里那条 RULE-SET。
+  【配置已加载】AWAvenue广告规则:
     type: http
     behavior: classical      # 文件是 payload 列表，每条自带 DOMAIN/DOMAIN-SUFFIX 前缀
     format: yaml
@@ -282,7 +293,7 @@ proxy-groups:
 rules:
   # 广告与隐私拦截（必须排在 GEOIP,CN / GEOSITE,cn 直连之前，否则国内广告域名会先被直连吃掉）
   - "GEOSITE,category-ads-all,广告过滤"
-  - "RULE-SET,AWAvenue-Ads,广告过滤"
+  - "RULE-SET,【配置已加载】AWAvenue广告规则,广告过滤"
   # 镜像直连（订阅、规则集、geo 数据库都从这里拉，避免绕道节点被拖死）
   # jsdelivr 实测直连 97ms、下载 1.3s，绕节点纯属浪费（geox-url 也依赖它）
   - "DOMAIN-SUFFIX,boki.moe,直连"
