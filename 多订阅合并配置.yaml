@@ -12,8 +12,8 @@
 #   * provider 层 exclude-filter 自动剔除免费池的"官网/剩余流量/过期"等垃圾节点
 #   * GEOSITE/GEOIP 分流规则（使用内置 geo 数据库，无需额外下载规则集）
 #   * AWAvenue 广告规则集（rule-providers 远程拉取，自动更新，743 条国内 App 广告域名）
-#   * 所有 provider 走 proxy: DIRECT 拉取 —— 拉取请求会进规则引擎，绕节点时会被坏节点的
-#     劫持 DNS 拖死（日志实证：节点把 github.boki.moe 解析成假 IP），故与节点健康度解耦
+#   * 所有 provider 走 proxy: DIRECT 拉取 —— provider 拉取请求会进规则引擎、落到节点上，
+#     节点一死订阅和规则集就一起拉不动（日志实证），故让拉取与节点健康度解耦
 #   * DNS 走 DoH + fake-ip，国内域名直连解析
 # ============================================================
 
@@ -31,7 +31,7 @@ proxy-providers:
     path: ./providers/s1_freenode.yaml
     url: "https://github.boki.moe/https://raw.github.com/ripaojiedian/freenode/main/clash"
     interval: 3600            # 更新间隔（秒），免费池变动频繁，可按需调小（如 1800）
-    proxy: DIRECT             # 拉取走直连：boki 直连实测 1.5s，且不受坏节点 DNS 劫持影响
+    proxy: DIRECT             # 拉取走直连：boki 直连实测 1.5s，不该被死节点拖住
     health-check:
       enable: true
       url: "https://www.gstatic.com/generate_204"
@@ -136,7 +136,7 @@ rule-providers:
     path: ./ruleset/AWAvenue-Ads-Rule.yaml
     interval: 86400
     size-limit: 1048576      # 防异常响应写入超大文件
-    proxy: DIRECT            # 拉取走直连，理由同 proxy-providers（坏节点会劫持 DNS 导致拉取失败）
+    proxy: DIRECT            # 拉取走直连，理由同 proxy-providers：别被死节点拖住
 
 # ---------------- 全局配置 ----------------
 mixed-port: 7890
@@ -203,7 +203,9 @@ dns:
       - cn
 
 # ---------------- 代理组 ----------------
-# 说明：所有 `include-all: true` 的组会自动包含全部 5 个订阅的节点
+# 说明：所有 `include-all: true` 的组会自动包含全部 6 个订阅的节点
+# 已排除 S4(zhuhaiuk/free-nodes)：实测该源整批节点"服务器 TCP 在线但协议层不响应"，
+# 参与选优只会把流量拖死。想手动试 S4，用「手动选择」组（未过滤，保留全量）。
 proxy-groups:
   # ==== 基础策略组 ====
   - name: 节点选择
@@ -221,12 +223,15 @@ proxy-groups:
   - name: 自动选择
     type: url-test
     include-all: true
+    exclude-filter: "^S4"     # 见「代理组」区说明：S4 整批节点协议层不响应
     tolerance: 50
     url: "https://www.gstatic.com/generate_204"
     interval: 300
     timeout: 3000
     max-failed-times: 3
-    lazy: true
+    # lazy 已移除（默认 false）：主动按 interval 做健康检查。
+    # 原来 lazy: true 时日志会打「failed multiple times, activate health check」——
+    # 死节点被长期挂住，所有流量都走它，直到失败累积才想起检查。
     icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/speed.svg"
   - name: 手动选择
     type: select
@@ -240,6 +245,7 @@ proxy-groups:
     type: load-balance
     strategy: sticky-sessions
     include-all: true
+    exclude-filter: "^S4"     # 同上：不让死节点参与分发
     url: "https://www.gstatic.com/generate_204"
     interval: 300
     timeout: 3000
@@ -274,8 +280,10 @@ rules:
   # 广告与隐私拦截（必须排在 GEOIP,CN / GEOSITE,cn 直连之前，否则国内广告域名会先被直连吃掉）
   - "GEOSITE,category-ads-all,广告过滤"
   - "RULE-SET,AWAvenue-Ads,广告过滤"
-  # GitHub 加速镜像直连（订阅与规则集都从这里拉，避免绕道节点被劫持 DNS 拖死）
+  # 镜像直连（订阅、规则集、geo 数据库都从这里拉，避免绕道节点被拖死）
+  # jsdelivr 实测直连 97ms、下载 1.3s，绕节点纯属浪费（geox-url 也依赖它）
   - "DOMAIN-SUFFIX,boki.moe,直连"
+  - "DOMAIN-SUFFIX,jsdelivr.net,直连"
   # 局域网直连
   - "GEOIP,LAN,直连,no-resolve"
   # 国内流量直连
