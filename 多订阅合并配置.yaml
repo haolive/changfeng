@@ -204,7 +204,7 @@ dns:
   nameserver:
     - "https://doh.pub/dns-query"
     - "https://dns.alidns.com/dns-query"
-    - 114.114.114.114
+    - 180.184.1.1
   # 只用国内 DNS，不吃 fallback（2026-09-20 实测：1.1.1.1 / 8.8.8.8 的 HTTPS DoH 在本网络
   # 12 秒超时，不可达）。
   # 原配置带 fallback + fallback-filter.geoip: true，其语义是「非 CN 域名的解析结果必须由
