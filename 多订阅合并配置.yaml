@@ -15,6 +15,7 @@
 #   * 所有 provider 走 proxy: DIRECT 拉取 —— provider 拉取请求会进规则引擎、落到节点上，
 #     节点一死订阅和规则集就一起拉不动（日志实证），故让拉取与节点健康度解耦
 #   * DNS 走 DoH + fake-ip，国内域名直连解析
+#   * DNS 只用国内服务器（不吃 fallback）—— 落地的域名要能被解析，见 dns 段落里的说明
 # ============================================================
 
 # ---------------- 订阅节点来源 ----------------
@@ -193,14 +194,13 @@ dns:
     - "https://doh.pub/dns-query"
     - "https://dns.alidns.com/dns-query"
     - 114.114.114.114
-  fallback:
-    - "https://1.1.1.1/dns-query"
-    - "https://8.8.8.8/dns-query"
-  fallback-filter:
-    geoip: true
-    geoip-code: CN
-    geosite:
-      - cn
+  # 只用国内 DNS，不吃 fallback（2026-09-20 实测：1.1.1.1 / 8.8.8.8 的 HTTPS DoH 在本网络
+  # 12 秒超时，不可达）。
+  # 原配置带 fallback + fallback-filter.geoip: true，其语义是「非 CN 域名的解析结果必须由
+  # fallback 提供」——于是所有需要真实 IP 的非 CN 域名（走 DIRECT 拉取的 github.boki.moe、
+  # cdn.jsdelivr.net）都会报 dns resolve failed: couldn't find ip，还要白等十几秒超时。
+  # 走代理的流量用 fake-ip，本来就不需要真实解析，所以去掉 fallback 不影响科学上网。
+  # 若将来重新引入 fallback，务必同时给镜像域名加 nameserver-policy，否则同样会踩回来。
 
 # ---------------- 代理组 ----------------
 # 说明：所有 `include-all: true` 的组会自动包含全部 6 个订阅的节点
