@@ -145,8 +145,6 @@ rule-providers:
     behavior: classical      # 文件是 payload 列表，每条自带 DOMAIN/DOMAIN-SUFFIX 前缀
     format: yaml
     url: "https://github.boki.moe/https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Clash-Classical.yaml"
-    # 备选镜像（boki 不可用时替换 url）：
-    #   https://cdn.jsdelivr.net/gh/TG-Twilight/AWAvenue-Ads-Rule@main/Filters/AWAvenue-Ads-Rule-Clash-Classical.yaml
     path: ./ruleset/AWAvenue-Ads-Rule.yaml
     interval: 86400
     size-limit: 1048576      # 防异常响应写入超大文件
@@ -160,25 +158,6 @@ rule-providers:
     interval: 86400
     size-limit: 2097152
     proxy: DIRECT
-  Hyper广告、跟踪域名:
-    type: http
-    behavior: domain
-    format: mrs
-    url: https://445569.pages.dev/https://github.com/Lynricsy/HyperADRules/releases/latest/download/hyper_adrules_ads.mrs
-    path: ./ruleset/hyper_adrules_ads.mrs
-    interval: 86400
-    size-limit: 2097152
-    proxy: DIRECT
-  Hyper恶意、钓鱼域名:
-    type: http
-    behavior: domain
-    format: mrs
-    url: https://445569.pages.dev/https://github.com/Lynricsy/HyperADRules/releases/latest/download/hyper_adrules_malware.mrs
-    path: ./ruleset/hyper_adrules_malware.mrs
-    interval: 86400
-    size-limit: 2097152
-    proxy: DIRECT
-# ---------------- 全局配置 ----------------
 mixed-port: 7890
 allow-lan: false
 bind-address: '*'
@@ -323,8 +302,6 @@ rules:
   - "RULE-SET,Hyper误杀例外,PASS"
   - "GEOSITE,category-ads-all,广告过滤"
   - "RULE-SET,秋风AWAvenue广告规则,广告过滤"
-  - "RULE-SET,Hyper广告、跟踪域名,广告过滤"
-  - "RULE-SET,Hyper恶意、钓鱼域名,广告过滤"
   # 镜像直连（订阅、规则集、geo 数据库都从这里拉，避免绕道节点被拖死）
   # jsdelivr 实测直连 97ms、下载 1.3s，绕节点纯属浪费（geox-url 也依赖它）
   - "DOMAIN-SUFFIX,boki.moe,直连"
