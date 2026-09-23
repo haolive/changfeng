@@ -17,8 +17,11 @@ name: refresh-nodes
 
 on:
   schedule:
-    - cron: '47 * * * *'        # 每小时第 47 分钟：错开 sync-s8-provider 的 :23，用它的新鲜产物
-  workflow_dispatch:            # 也可以手动触发
+    - cron: '47 * * * *'        # 每小时第 47 分钟（GitHub 用 UTC；整小时偏移，所以北京时间也是 :47）
+                                # ⚠ 定时触发不保证准时：实测有延迟几十分钟、甚至整点漏跑的情况
+                                #   （免费 runner 在高峰期的已知行为）。想更密集就把这行改成
+                                #   '17,47 * * * *'（每小时两次），或 '*/30 * * * *'（每 30 分钟）。
+  workflow_dispatch:            # 也可以手动触发（改完想看效果就用它，别等定时）
 
 permissions:
   contents: write               # 创建 / 更新 release 资产需要
