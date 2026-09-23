@@ -1,0 +1,33 @@
+{
+  "updated_at": "2026-09-23T12:27:27Z",
+  "update_reason": "坏节点签名变化 (无) -> 4fc7dda15e0c4be0",
+  "bad_signature": "4fc7dda15e0c4be0",
+  "dropped_reasons": {
+    "重名": 10,
+    "reality public-key 非法": 1
+  },
+  "dropped_examples": {
+    "重名": [
+      "重名",
+      "重名",
+      "重名",
+      "重名",
+      "重名",
+      "重名",
+      "重名",
+      "重名",
+      "重名",
+      "重名"
+    ],
+    "reality public-key 非法": [
+      "reality public-key 非法('enabled')"
+    ]
+  },
+  "quoted_scalars": [
+    "分享日记_129.reality-opts.short-id='062898e8' -> 加引号"
+  ],
+  "quoted_count": 1,
+  "upstream_total": 3808,
+  "kept": 3797,
+  "note": "签名变化 = 上游夹带的非法节点集合变了（新出现了坏节点，或旧的消失了）。重名不计入签名（那只是常规噪音）。"
+}
