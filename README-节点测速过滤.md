@@ -143,7 +143,18 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
 ```
 
 产物在 `_cn_filter\best-cn.yaml`（完整配置，Verge 里「导入本地配置」）和 `nodes-cn.yaml`。
-加 `--publish` 可以把节点清单发成 release 资产 `best-cn.yaml`（需要 `GITHUB_TOKEN` 环境变量）。
+加 `--publish` 可以把结果发成 release 资产（需要 `GITHUB_TOKEN` 环境变量），
+发布地址固定为：
+
+```
+https://github.boki.moe/https://github.com/haolive/changfeng/releases/download/best-cn/best-cn.yaml
+```
+
+> ⚠ 它是**你本机跑出来的快照**，不自动更新（只有你的网络能测国内链路，GitHub 上没法定时跑）。
+> 想刷新就再跑一次脚本 + `--publish`，会覆盖同一个资产。
+> 2026-09-24 实测一次：仓库那份 602 个候选 → 延迟合格 55 → 测速合格 6（另 2 个 IPv6 未测）；
+> 用 `curl` 完全绕过 mihomo 复验：gstatic 返回 204、256KB 也真能下下来 ✓。
+> 筛出来的节点里有 `84.17.47.x:9002` 这类 http 型 —— 和当时手动选中的节点是同族。
 
 > 脚本内部已经处理了两件容易踩的事：
 > 1. **DoH DNS**（`--dns-doh doh.pub / alidns`）：国内系统 DNS 对 Google/CF 域名可能给出被污染的结果，
