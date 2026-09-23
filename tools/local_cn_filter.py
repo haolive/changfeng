@@ -94,6 +94,18 @@ def find_core(explicit):
     return None
 
 
+def find_config(repo, name):
+    """配置在哪儿：本机习惯是放在仓库目录的**上一级**（仓库里那份是给流水线用的远端真源）。
+
+    两个位置都找，找不到就把两个候选都报出来（免得像之前那样传到内核里才 FileNotFoundError）。
+    """
+    cands = [os.path.join(repo, name), os.path.join(os.path.dirname(repo), name)]
+    for c in cands:
+        if os.path.exists(c):
+            return c
+    raise SystemExit('找不到配置文件 %r，试过：\n  %s' % (name, '\n  '.join(cands)))
+
+
 def main():
     ap = argparse.ArgumentParser(description='本机（国内）实测筛节点')
     ap.add_argument('--repo', default=REPO_DEFAULT, help='本地仓库目录（默认脚本上级目录）')
@@ -112,14 +124,17 @@ def main():
     a = ap.parse_args()
 
     repo = os.path.abspath(a.repo)
-    cfg = os.path.join(repo, a.config)
+    cfg = find_config(repo, a.config)
     tester = os.path.join(repo, 'tools', 'test_nodes.py')
     fetcher = os.path.join(repo, 'tools', 'fetch_node_pool.py')
+    if not os.path.exists(tester):
+        log('找不到 %s（--repo 指到仓库目录上）' % tester)
+        return 1
     core = find_core(a.core)
     if not core:
         log('找不到 mihomo 内核，用 --core 指定路径（Clash Verge 数据目录里有 verge-mihomo.exe）')
         return 1
-    log('内核：%s' % core)
+    log('内核：%s\n配置：%s' % (core, cfg))
 
     out_dir = os.path.join(repo, OUT_DIR)
     os.makedirs(out_dir, exist_ok=True)
@@ -166,6 +181,10 @@ def main():
            '--min-keep', '1']
     for d in DOH:
         cmd += ['--dns-doh', d]
+    # 测速兜底：Google CDN 会对部分机房 IP 返 403（那不是节点的问题），换 CF 和国内镜像再试
+    for fb in ('https://speed.cloudflare.com/__down?bytes={bytes}',
+               'https://mirrors.aliyun.com/ubuntu/ls-lR.gz'):
+        cmd += ['--speed-url-fallback', fb]
     if a.limit:
         cmd += ['--limit', str(a.limit)]
     rc = subprocess.call(cmd)
