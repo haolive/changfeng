@@ -1,0 +1,19 @@
+{
+  "updated_at": "2026-09-23T14:15:54Z",
+  "update_reason": "坏节点签名变化 (无) -> e12739810c7e0bf6",
+  "bad_signature": "e12739810c7e0bf6",
+  "dropped_reasons": {
+    "重复节点": 342,
+    "exclude-filter": 29,
+    "延迟测试失败": 4917,
+    "速度不足": 0,
+    "下载失败": 800,
+    "字段非法（内核预检剔除）": 4
+  },
+  "dropped_examples": {},
+  "quoted_scalars": [],
+  "quoted_count": 0,
+  "upstream_total": 5837,
+  "kept": 116,
+  "note": "签名变化 = 上游夹带的非法节点集合变了（新出现了坏节点，或旧的消失了）。重名不计入签名（那只是常规噪音）。"
+}
