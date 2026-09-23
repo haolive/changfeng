@@ -12,7 +12,12 @@
 #
 # 特性：
 #   * 多个订阅通过 proxy-providers 合并，节点名前缀 S1~Sn 区分来源
-#   * provider 层 exclude-filter 自动剔除免费池的"官网/剩余流量/过期"等垃圾节点
+#   * provider 层 exclude-filter 只留"状态型"词（剩余/流量/到期/过期/重置/traffic/expire/expired），
+#     用来剔除「剩余流量：100GB」「到期时间」这类信息行。
+#     ⚠ 别把"品牌推广型"词（tg频道 / t.me / http / 官网 / 订阅 / 机场 / 邀请 / 返利…）写进排除表：
+#       2026-09-23 实测，在 2534 个节点里它误杀了 66 个**可用**节点（真正剔掉的垃圾只有 2 个），
+#       其中某机场的节点名统一是「✈️关注TG频道@stymei NN」，一个 `tg频道` 就把整源 26/26 过滤干净，
+#       内核只报一行 pull error: file doesn't have any proxy —— 整个源静默清零，界面上看不出来。
 #   * GEOSITE/GEOIP 分流规则（使用内置 geo 数据库，无需额外下载规则集）
 #   * AWAvenue 广告规则集（rule-providers 远程拉取，自动更新，952 条国内 App 广告域名）
 #     —— 该 provider 名字带【配置已加载】前缀，用作启动日志的中文标记，详见「用法」第 4 条
@@ -39,7 +44,7 @@ proxy-providers:
     override:
       additional-prefix: "S1 |"
       skip-cert-verify: true   # 免费节点证书常不可信，跳过校验
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
   s2-shaoyouvip:
     type: http
     path: ./providers/s2_shaoyouvip.yaml
@@ -55,7 +60,7 @@ proxy-providers:
     override:
       additional-prefix: "S2 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
   s3-free-proxy-airport:
     type: http
     path: ./providers/s3_free_proxy_airport.yaml
@@ -71,7 +76,7 @@ proxy-providers:
     override:
       additional-prefix: "S3 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
   s4-free-nodes:
     type: http
     path: ./providers/s4_free_nodes.yaml
@@ -87,15 +92,19 @@ proxy-providers:
     override:
       additional-prefix: "S4 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
   s5-sub445569:
     type: http
     path: ./providers/s5_sub445569.yaml
     url: "https://sub.445569.xyz/"
     interval: 1800            # 该源节点轮换快（实测一小时里 17->29 个），缩短到 30 分钟
-    proxy: DIRECT             # 实测直连 262ms、200/192696 字节，与缓存一致
-    # ⚠ 该源按 User-Agent 分流：带 clash UA 才返回 Clash 配置（192696 字节），
-    #   不带 UA 只返回 base64 订阅（17428 字节）。所以别给它加 user-agent 覆盖项。
+    proxy: DIRECT             # 实测直连 200/182127 字节（2026-09-23，带 clash UA）
+    # ⚠ 该源按 User-Agent 分流：带 clash UA 才返回 Clash 配置（182127 字节），
+    #   不带 UA 只返回 base64 订阅（8108 字节）。内核默认 UA 是 clash.meta/<版本>，
+    #   实测能拿到 Clash 配置，所以别给它加 user-agent 覆盖项。
+    # ⚠ 这个机场的节点名统一是「✈️关注TG频道@stymei NN」。2026-09-23 实测：排除表里只要有
+    #   `tg频道`，它的节点就会被 26/26 全部过滤掉，内核随即报 "file doesn't have any proxy"
+    #   —— 整个源静默清零。排除词收窄成"只留状态型词"之后才恢复正常（见文件顶部说明）。
     health-check:
       enable: true
       url: "https://www.gstatic.com/generate_204"
@@ -105,7 +114,7 @@ proxy-providers:
     override:
       additional-prefix: "S5 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
   s6-FreeSubsCheck:
     type: http
     path: ./providers/s6_FreeSubsCheck.yaml
@@ -122,7 +131,7 @@ proxy-providers:
     override:
       additional-prefix: "S6 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
   s7-proxypool:
     type: http
     path: ./providers/s7_proxypool.yaml
@@ -138,11 +147,20 @@ proxy-providers:
     override:
       additional-prefix: S7 |
       skip-cert-verify: true
-    exclude-filter: (?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)
+    exclude-filter: (?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)
   s8-ai-crawler-v2:
     type: http
     path: ./providers/s8_aicrawler.yaml
-    url: https://seep.eu.org/https://raw.githubusercontent.com/Barabama/FreeNodes/refs/heads/feat/ai-crawler-v2/nodes/merged.yaml
+    # ⚠ 不再直连上游 merged.yaml：上游每小时重生成，时不时夹带字段非法的节点
+    #   （2026-09-23 实测：第 2896 个的 reality public-key 写成 enabled、
+    #    第 3148 个的 short-id 是裸标量被 YAML 当成科学计数法），
+    #   而 mihomo 解析 provider 时遇到第一个非法节点就**整体中止** ——
+    #   不是少一个节点，是整个源 0 个节点生效（providers/s8_aicrawler.yaml
+    #   从未落地就是这个原因）。
+    #   现在指向自己仓库的清洗产物：GitHub Actions 每小时拉上游 →
+    #   tools/sanitize_provider.py 按字段清洗 + 内核端到端自检 → 发布为 release 资产。
+    #   直连实测可达（HTTP 206，~2.8s 拿到首块）；若哪天变慢/被墙，可添加镜像前缀
+    url: https://seep.eu.org/https://github.com/haolive/changfeng/releases/download/s8/s8.yaml
     interval: 3600
     proxy: DIRECT
     health-check:
@@ -154,7 +172,7 @@ proxy-providers:
     override:
       additional-prefix: S8 |
       skip-cert-verify: true
-    exclude-filter: (?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)
+    exclude-filter: (?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)
   s9-free18:
     type: http
     path: ./providers/s9_free18.yaml
@@ -170,7 +188,7 @@ proxy-providers:
     override:
       additional-prefix: S9 |
       skip-cert-verify: true
-    exclude-filter: (?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)
+    exclude-filter: (?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)
   s10-airport:
     type: http
     path: ./providers/s10_airport.yaml
@@ -186,7 +204,7 @@ proxy-providers:
     override:
       additional-prefix: S10 |
       skip-cert-verify: true
-    exclude-filter: (?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)
+    exclude-filter: (?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)
 
 # ---------------- 广告规则集 ----------------
 rule-providers:
