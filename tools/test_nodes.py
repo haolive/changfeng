@@ -31,6 +31,7 @@
 """
 
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -236,6 +237,19 @@ def has_ipv6(timeout=3):
         return False
 
 
+def is_ipv6_literal(server):
+    """server 字段是不是 IPv6 字面量地址。
+
+    别用 `':' in server` 糊弄：免费池里有 `server: 用户@主机:443?参数` 这种垃圾节点
+    （冒号是有的），那样会被当成 IPv6 节点"跳过测速、原样保留"—— 等于把垃圾放进了产物。
+    """
+    s = str(server or '').strip().strip('[]')
+    try:
+        return isinstance(ipaddress.ip_address(s), ipaddress.IPv6Address)
+    except ValueError:
+        return False
+
+
 def endpoint_key(node):
     """落地端点身份（不含凭据）：同一台机器 + 同一个伪装参数 = 同一个节点。"""
     return json.dumps({k: node.get(k) for k in
@@ -346,8 +360,8 @@ def main():
     open(a.core_log, 'w', encoding='utf-8').close()     # 每次运行清空
 
     # ---- IPv6：测试机没有出口时，IPv6 字面量节点没法测 -------------------------
-    v6_nodes = [n for n in nodes if ':' in str(n.get('server', ''))]
-    testable = [n for n in nodes if ':' not in str(n.get('server', ''))]
+    v6_nodes = [n for n in nodes if is_ipv6_literal(n.get('server'))]
+    testable = [n for n in nodes if not is_ipv6_literal(n.get('server'))]
     v6_kept, v6_dropped, test_host_has_v6 = [], [], None
     if v6_nodes:
         test_host_has_v6 = has_ipv6()

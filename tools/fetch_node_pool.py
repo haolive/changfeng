@@ -31,6 +31,7 @@
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -140,6 +141,15 @@ def ident_key(node):
     return json.dumps(picked, sort_keys=True, ensure_ascii=False)
 
 
+def is_ipv6_literal(server):
+    """server 是不是 IPv6 字面量地址（别用"含冒号"糊弄：垃圾节点里也有冒号）。"""
+    s = str(server or '').strip().strip('[]')
+    try:
+        return isinstance(ipaddress.ip_address(s), ipaddress.IPv6Address)
+    except ValueError:
+        return False
+
+
 def main():
     ap = argparse.ArgumentParser(description='合并多订阅配置里的 proxy-providers 成一个节点池')
     ap.add_argument('--config', default='多订阅合并配置.yaml', help='多订阅合并配置.yaml 的路径')
@@ -232,7 +242,7 @@ def main():
         if v:
             dropped[k] = v
 
-    v6 = sum(1 for n in uniq if ':' in str(n.get('server', '')))
+    v6 = sum(1 for n in uniq if is_ipv6_literal(n.get('server')))
     by_source = {}
     for n in uniq:
         src = str(n.get('name', '')).split(' |')[0] if '|' in str(n.get('name', '')) else '其它'
