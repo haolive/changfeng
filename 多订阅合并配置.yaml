@@ -14,12 +14,15 @@
 #   * 多个订阅通过 proxy-providers 合并，节点名前缀 S1~Sn 区分来源
 #   * 各段的设计说明、实测数据、维护记录见同目录「多订阅合并配置-说明.md」——那里能随便写长文，
 #     不受编辑器影响（序列条目上方的注释会被编辑器的增删/移动改乱，所以都搬过去了）
-#   * provider 层 exclude-filter 只留"状态型"词（剩余/流量/到期/过期/重置/traffic/expire/expired），
-#     用来剔除「剩余流量：100GB」「到期时间」这类信息行。
-#     ⚠ 别把"品牌推广型"词（tg频道 / t.me / http / 官网 / 订阅 / 机场 / 邀请 / 返利…）写进排除表：
-#       2026-09-23 实测，在 2534 个节点里它误杀了 66 个**可用**节点（真正剔掉的垃圾只有 2 个），
-#       其中某机场的节点名统一是「✈️关注TG频道@stymei NN」，一个 `tg频道` 就把整源 26/26 过滤干净，
-#       内核只报一行 pull error: file doesn't have any proxy —— 整个源静默清零，界面上看不出来。
+#   * **不配 exclude-filter（不按节点名过滤）**：过滤这活儿交给流水线里的测速。
+#     2026-09-23 实测：`(…|中国|…)` 那套词在 10 个源里命中 29 个，**29 个全是真节点配置**
+#     （`🇭🇰_HK_中国香港`、`🇹🇼 中国台湾省-xxx`、`🇨🇳_CN_中国->🇺🇸_US_美国` 这类中转），
+#     而「剩余流量：100GB」「到期时间」这类信息行命中 **0** 个 —— 词表只剩误伤，所以整个删了。
+#     ⚠ 历史教训（别再走回头路）：就算要按名字剔，也**只**能放状态型词，别放"品牌推广型"词
+#       （tg频道 / t.me / http / 官网 / 订阅 / 机场 / 邀请 / 返利…）：2026-09-23 实测那版长词表
+#       在 2534 个节点里误杀 66 个**可用**节点（真垃圾只有 2 个）——某机场节点名统一是
+#       「✈️关注TG频道@stymei NN」，一个 `tg频道` 就把整源 26/26 过滤干净，内核只报一行
+#       pull error: file doesn't have any proxy，整个源静默清零，界面上看不出来。
 #   * GEOSITE/GEOIP 分流规则（使用内置 geo 数据库，无需额外下载规则集）
 #   * AWAvenue 广告规则集（rule-providers 远程拉取，自动更新，952 条国内 App 广告域名）
 #     —— 该 provider 名字带【配置已加载】前缀，用作启动日志的中文标记，详见「用法」第 4 条
@@ -46,7 +49,6 @@ proxy-providers:
     override:
       additional-prefix: "S1 |"
       skip-cert-verify: true   # 免费节点证书常不可信，跳过校验
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|中国|traffic|expire|expired)'
   s2-shaoyouvip:
     type: http
     path: ./providers/s2_shaoyouvip.yaml
@@ -62,7 +64,6 @@ proxy-providers:
     override:
       additional-prefix: "S2 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|中国|traffic|expire|expired)'
   s3-free-proxy-airport:
     type: http
     path: ./providers/s3_free_proxy_airport.yaml
@@ -78,7 +79,6 @@ proxy-providers:
     override:
       additional-prefix: "S3 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|中国|traffic|expire|expired)'
   s4-free-nodes:
     type: http
     path: ./providers/s4_free_nodes.yaml
@@ -94,7 +94,6 @@ proxy-providers:
     override:
       additional-prefix: "S4 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|中国|traffic|expire|expired)'
   s5-sub445569:
     type: http
     path: ./providers/s5_sub445569.yaml
@@ -104,9 +103,10 @@ proxy-providers:
     # ⚠ 该源按 User-Agent 分流：带 clash UA 才返回 Clash 配置（182127 字节），
     #   不带 UA 只返回 base64 订阅（8108 字节）。内核默认 UA 是 clash.meta/<版本>，
     #   实测能拿到 Clash 配置，所以别给它加 user-agent 覆盖项。
-    # ⚠ 这个机场的节点名统一是「✈️关注TG频道@stymei NN」。2026-09-23 实测：排除表里只要有
-    #   `tg频道`，它的节点就会被 26/26 全部过滤掉，内核随即报 "file doesn't have any proxy"
-    #   —— 整个源静默清零。排除词收窄成"只留状态型词"之后才恢复正常（见文件顶部说明）。
+    # ⚠ 这个机场的节点名统一是「✈️关注TG频道@stymei NN」。2026-09-23 实测：按名字过滤时
+    #   排除表里只要有 `tg频道`，它的节点就会被 26/26 全部过滤掉，内核随即报
+    #   "file doesn't have any proxy" —— 整个源静默清零。
+    #   现在配置里不配 exclude-filter（见文件顶部说明），这类名字不会再把节点连坐掉。
     health-check:
       enable: true
       url: "https://www.gstatic.com/generate_204"
@@ -116,7 +116,6 @@ proxy-providers:
     override:
       additional-prefix: "S5 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|中国|traffic|expire|expired)'
   s6-FreeSubsCheck:
     type: http
     path: ./providers/s6_FreeSubsCheck.yaml
@@ -133,7 +132,6 @@ proxy-providers:
     override:
       additional-prefix: "S6 |"
       skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|中国|traffic|expire|expired)'
   s7-proxypool:
     type: http
     path: ./providers/s7_proxypool.yaml
@@ -149,7 +147,6 @@ proxy-providers:
     override:
       additional-prefix: S7 |
       skip-cert-verify: true
-    exclude-filter: (?i)(剩余|流量|到期|过期|重置|中国|traffic|expire|expired)
   s8-ai-crawler-v2:
     type: http
     path: ./providers/s8_aicrawler.yaml
@@ -176,7 +173,6 @@ proxy-providers:
     override:
       additional-prefix: S8 |
       skip-cert-verify: true
-    exclude-filter: (?i)(剩余|流量|到期|过期|重置|中国|traffic|expire|expired)
   s9-free18:
     type: http
     path: ./providers/s9_free18.yaml
@@ -192,7 +188,6 @@ proxy-providers:
     override:
       additional-prefix: S9 |
       skip-cert-verify: true
-    exclude-filter: (?i)(剩余|流量|到期|过期|重置|中国|traffic|expire|expired)
   s10-airport:
     type: http
     path: ./providers/s10_airport.yaml
@@ -208,7 +203,6 @@ proxy-providers:
     override:
       additional-prefix: S10 |
       skip-cert-verify: true
-    exclude-filter: (?i)(剩余|流量|到期|过期|重置|中国|traffic|expire|expired)
 
 # ---------------- 广告规则集 ----------------
 rule-providers:
