@@ -1,0 +1,113 @@
+# 节点测速过滤流水线（refresh-nodes，往 haolive/changfeng 仓库加的文件）
+
+## 为什么需要它
+
+客户端（Clash Verge）靠 10 个 `proxy-providers` 在**本机**拉免费池，池子里常年混着大量
+已经死掉的节点。客户端的健康检查只能"发现"某个节点不通，**删不掉它** —— 列表越长，
+客户端每次要测的越多，界面上看到的废节点也越多。
+
+这条流水线把活儿搬到 GitHub Actions：每小时把 10 个源合并成一个池子，用 mihomo 内核
+**逐个测延迟 + 逐个真下 512KB 测速**，只把活下来的节点发出来。
+
+## 加了哪些文件（保持目录结构）
+
+| 本地文件 | 仓库路径 | 作用 |
+|---|---|---|
+| `.github/workflows/refresh-nodes.yml` | 同左 | 定时任务：拉源 → 合并 → 测速 → 发布 release（+ 保活） |
+| `tools/fetch_node_pool.py` | 同左 | 读配置里的 proxy-providers：逐源拉取、按字段清洗、加前缀、过 exclude-filter、跨源去重 → 节点池 |
+| `tools/test_nodes.py` | 同左 | 起临时内核做两轮测速（延迟 / 下载），产出 `best.yaml` 和 `nodes.yaml` |
+
+复用了已有的两个脚本，没有另抄一份逻辑：`tools/sanitize_provider.py`（按字段清洗）、
+`tools/keepalive.py`（保活 + 审计）。
+
+## 产物怎么用
+
+release tag `best` 下两个资产（每小时覆盖更新，不涨仓库体积）：
+
+| 资产 | 用途 |
+|---|---|
+| `best.yaml` | **完整配置**：把「多订阅合并配置.yaml」的 `proxy-providers` 段换成测速后的 inline `proxies`，DNS / 策略组 / 分流规则 / 广告规则集原样保留。客户端里直接当订阅加即可 |
+| `nodes.yaml` | 只有 `proxies` 的清单。想保留自己那份配置、只把节点换掉的话，把它当 proxy-provider 用 |
+
+带镜像前缀的地址（本机直连 github.com 慢；实测 boki 前缀 5~7 秒下完）：
+
+```
+https://github.boki.moe/https://github.com/haolive/changfeng/releases/download/best/best.yaml
+https://github.boki.moe/https://github.com/haolive/changfeng/releases/download/best/nodes.yaml
+```
+
+Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**。想让它跟着每小时更新，
+把该 profile 的「更新间隔」调小（Verge 默认很长），或者每次手动点一下更新。
+
+> 注意：`best.yaml` 是**生成物**，别在它上面手工改配置（下次运行会覆盖）。
+> 配置要改就改仓库根目录的 `多订阅合并配置.yaml` —— 它是源列表与规则的唯一真源，
+> 流水线每小时读它。
+
+## 筛选标准（默认值都在 workflow 的参数里，改一行就行）
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `--latency-url` / `--latency-timeout` | gstatic 204 / 3000ms | 延迟测试地址与客户端健康检查一致，超时即淘汰 |
+| `--max-latency` | 2000ms | 延迟超过就淘汰 |
+| `--speed-bytes` / `--speed-timeout` | 512KB / 10s | 每个存活节点真下 512KB（speed.cloudflare.com） |
+| `--min-speed-kbps` | 100 KB/s | 下载速度低于就淘汰 |
+| `--speed-limit` | 800 | 只给延迟最好的 800 个做下载测速（流量与时间可控） |
+| `--max-nodes` | 600 | 最终订阅最多 600 个节点（按延迟从好到差排） |
+| `--min-keep` | 100 | 存活少于 100 个就**判失败、不发布**（release 里保住上一版） |
+| `--concurrency` | 64 | 延迟轮并发 |
+
+淘汰原因都会写进 `dist/filter-stats.json` 和 Actions 日志（哪个节点、什么原因）。
+
+## 几个必须知道的点
+
+1. **测速是在 GitHub runner（境外机房）上做的**：它回答的是"这个节点活着、能跑流量"，
+   不等于"从国内连它也快"。但"死的 / 半死不活的"确实会被清掉 —— 这正是要的效果。
+   想按国内网络的口味筛，在本机跑 `tools/test_nodes.py`（见下），两者不冲突。
+2. **IPv6 节点**：runner 没有 IPv6 出口，IPv6 字面量地址的节点在那边测不了。
+   默认 `--ipv6-policy keep`：跳过测速、原样保留（不冤枉好节点）；如果你本机没有 IPv6、
+   想让它们彻底消失，改成 `drop`。（当前池子里 IPv6 字面量只有个位数，影响很小。）
+3. **内核预检自愈**：mihomo 解析 inline proxies 时，遇到字段缺失/非法的节点不是跳过它，
+   而是**整体拒绝整个配置**（`Parse config error: proxy 2: '' has unset fields: cipher`）——
+   一个坏节点能让 6000 个节点全进不了内核。`tools/sanitize_provider.py` 的规则覆盖不到
+   "缺必填字段"这一类，所以 `test_nodes.py` 会先用 `mihomo -t` 预检、按内核报的下标逐个剔掉，
+   直到配置能过。日志里出现"预检剔除"是正常的，那是兜底，不是误杀。
+4. **别改 tag 名 `best` 和资产名**：客户端订阅地址指着它们。
+5. **源列表跟着配置走**：加/删源、改 `exclude-filter`、改前缀，都只改仓库根目录的
+   `多订阅合并配置.yaml`（本地改完上传），流水线每小时读到新配置。
+6. **下载测速用的是 listeners**：给每个存活节点开一个本机 HTTP 入站（`proxy:` 绑定到该节点），
+   再经它真下 512KB。这是唯一能区分"能握手但传不动"（免费池里很常见）的方法 ——
+   mihomo 的 delay 接口只量首字节耗时，不是带宽。
+
+## 排查
+
+- Actions 日志里有每轮的分段输出（池子大小、延迟通过数、测速通过数、最终节点数、各源存活数）。
+- 产物 `dist/core.log`（临时内核实例的日志）会作为 artifact `node-test-log` 保留 7 天。
+- 某次运行失败（比如存活节点少于 `--min-keep`）时**不会覆盖 release**，客户端拿到的还是上一版，
+  所以看到 workflow 红了一次不用慌，看日志定位就行。
+- 想看"现在到底哪些节点活着"，直接把 release 的 `best.yaml` 下下来看 `proxies:` 段（按延迟排序）。
+
+## 本机自测（可选）
+
+```powershell
+# 1) 用客户端缓存离线合并（不联网），先看合并/清洗/去重结果
+& "D:\ProgramFiles\install\Python311\python.exe" tools\fetch_node_pool.py `
+    --config 多订阅合并配置.yaml --out dist\pool.yaml --stats dist\pool-stats.json `
+    --cache "$env:APPDATA\io.github.clash-verge-rev.clash-verge-rev\providers"
+
+# 2) 本机测速（用你自己的网络口味筛）
+& "D:\ProgramFiles\install\Python311\python.exe" tools\test_nodes.py `
+    --pool dist\pool.yaml --config 多订阅合并配置.yaml `
+    --core "D:\ProgramFiles\Portable\科学\Clash.Verge\verge-mihomo.exe" `
+    --out dist\best.yaml --nodes-out dist\nodes.yaml --stats dist\filter-stats.json `
+    --limit 300 --min-keep 1
+```
+
+`--limit 300` 只测池子里前 300 个（冒烟用，几分钟内出结果）；去掉就是全量。
+本机测速的阈值可以直接用默认值，也可以按国内网络口味收紧（比如 `--max-latency 1200`）。
+
+## 保活（和 s8 那条一样的坑）
+
+GitHub 对**公开仓库**的定时任务：连续 60 天没有任何提交活动，`schedule` 会被自动停用。
+这条流水线同样只更新 release 资产、不产生 commit，所以最后一步会**按需**提交
+`stats/node-filter-stats.json` —— 只有「**有源拉取失败/恢复**」或「**上游夹带的坏节点集合变了**」
+或「**超过 7 天没提交**」才写，正常一周最多一两次。

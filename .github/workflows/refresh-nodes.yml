@@ -1,0 +1,148 @@
+name: refresh-nodes
+
+# 把「多订阅合并配置.yaml」里的 10 个 proxy-providers 合成一个节点池，逐个测速
+# （延迟 + 真实下载 512KB），只把活下来的节点发出来：
+#
+#   release 资产 best.yaml   —— 完整配置（DNS/策略组/分流规则/广告规则集原样保留，
+#                               proxy-providers 段换成测速后的 inline proxies）
+#                               https://github.com/haolive/changfeng/releases/download/best/best.yaml
+#   release 资产 nodes.yaml  —— 只有 proxies 的清单，想自己组装配置时当 proxy-provider 用
+#
+# 为什么不在客户端里过滤：客户端的健康检查只能"发现"某个节点不通，删不掉它 ——
+# 列表越长，客户端每次要测的就越多，界面上看到的废节点也越多。放到 runner 上跑一遍，
+# 客户端拿到的就是"已经筛过一遍"的干净列表。
+#
+# 产物只在 release 里覆盖更新（不提交进 git，否则仓库每天涨几十 MB）；
+# 最后一步的 keepalive 是为了防止"公开仓库连续 60 天没有提交 → schedule 被自动停用"。
+
+on:
+  schedule:
+    - cron: '47 * * * *'        # 每小时第 47 分钟：错开 sync-s8-provider 的 :23，用它的新鲜产物
+  workflow_dispatch:            # 也可以手动触发
+
+permissions:
+  contents: write               # 创建 / 更新 release 资产需要
+
+concurrency:
+  group: refresh-nodes
+  cancel-in-progress: true      # 上一次还没跑完就被下一次取代时，取消旧的
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: pip install --quiet pyyaml
+
+      - name: 下载 mihomo（测速内核）
+        run: |
+          set -euo pipefail
+          url=$(curl -sSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest \
+                | jq -r '.assets[].browser_download_url' \
+                | grep -E 'linux-amd64-v[0-9]' | head -n1)
+          echo "downloading $url"
+          curl -sSL -o mihomo.gz "$url"
+          gunzip -f mihomo.gz
+          chmod +x mihomo
+          ./mihomo -v
+
+      - name: 合并 10 个源（清洗 + 前缀 + 去重）
+        run: |
+          set -euo pipefail
+          python tools/fetch_node_pool.py \
+            --config 多订阅合并配置.yaml \
+            --out dist/pool.yaml \
+            --stats dist/pool-stats.json
+
+      - name: 逐个测速（延迟 + 下载）
+        run: |
+          set -euo pipefail
+          python tools/test_nodes.py \
+            --pool dist/pool.yaml \
+            --config 多订阅合并配置.yaml \
+            --core ./mihomo \
+            --out dist/best.yaml \
+            --nodes-out dist/nodes.yaml \
+            --stats dist/filter-stats.json \
+            --pool-stats dist/pool-stats.json \
+            --notes dist/release-notes.md \
+            --core-log dist/core.log \
+            --latency-timeout 3000 \
+            --max-latency 2000 \
+            --speed-bytes 524288 \
+            --speed-timeout 10 \
+            --min-speed-kbps 100 \
+            --speed-limit 800 \
+            --max-nodes 600 \
+            --concurrency 64 \
+            --min-keep 100
+
+      # 产物本身也过一遍内核：`-t` 会解析全部 inline proxies（字段非法会直接报错），
+      # 顺带校验合并后的配置结构。geo 数据拉不到时跳过（那说明不了产物有问题）。
+      - name: 内核校验产物
+        run: |
+          set -euo pipefail
+          geodir=$(mktemp -d)
+          ok=1
+          for f in geosite.dat geoip.dat; do
+            curl -sSL --max-time 90 -o "$geodir/$f" \
+              "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/$f" || ok=0
+          done
+          if [ "$ok" = "1" ]; then
+            ./mihomo -t -f dist/best.yaml -d "$geodir"
+            echo "产物通过内核校验"
+          else
+            echo "::warning::geo 数据没拉全，跳过 mihomo -t 校验（与产物本身无关）"
+          fi
+
+      - name: 发布到 release（固定 tag best）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release view best >/dev/null 2>&1 || gh release create best \
+            --title "best（测速过滤后的订阅）" \
+            --notes-file dist/release-notes.md
+          gh release upload best dist/best.yaml dist/nodes.yaml --clobber
+          gh release edit best --notes-file dist/release-notes.md
+          echo "已更新 https://github.com/${{ github.repository }}/releases/download/best/best.yaml"
+
+      - name: 保存测速日志（排查用）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-test-log
+          path: dist/core.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # 保活 + 审计：只更新 release 资产不产生 commit，而公开仓库连续 60 天没有提交活动
+      # schedule 会被自动停用。所以按需提交一个小统计文件（源挂了/恢复了、或上游坏节点
+      # 集合变了、或超过 7 天没提交时才写），正常一周最多一两次。
+      - name: 保活 / 审计（按需提交统计）
+        run: |
+          set -euo pipefail
+          mkdir -p stats
+          out=$(python tools/keepalive.py --stats dist/filter-stats.json \
+                  --store stats/node-filter-stats.json --max-age-days 7)
+          echo "$out"
+          if printf '%s\n' "$out" | head -n1 | grep -qx update; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add stats/node-filter-stats.json
+            if git diff --cached --quiet; then
+              echo "文件内容没变，跳过提交"
+            else
+              git commit -m "chore(stats): 节点测速统计（源变化或超 7 天保活）"
+              git push || echo "::warning::git push 失败（仓库可能同时有别的改动），下次运行再试"
+            fi
+          else
+            echo "统计无实质变化，跳过提交（保持提交历史干净）"
+          fi
