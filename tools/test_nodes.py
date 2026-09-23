@@ -181,7 +181,12 @@ class Core:
             msg = json.loads(body).get('message', body)
         except ValueError:
             msg = body
-        return None, 'HTTP %s %s' % (st, str(msg)[:60])
+        msg = re.sub(r'\s+', ' ', str(msg))[:60]
+        if 'timeout' in msg.lower():
+            msg = '超时'
+        elif 'error occurred in the delay test' in msg:
+            msg = '连接失败'
+        return None, msg or ('HTTP %s' % st)
 
     def log_tail(self, lines=25):
         try:
@@ -493,8 +498,11 @@ def main():
         if len(final_aliases) >= a.max_nodes:
             break
     final_nodes = [alias_map[al] for al in final_aliases] + v6_kept
-    print('\n最终 %d 个节点（测速合格 %d，未测速的延迟合格节点补 %d，IPv6 保留 %d）' % (
-        len(final_nodes), len(speed), len(untested_ok), len(v6_kept)))
+    n_speed_in = sum(1 for al in final_aliases if al in speed)
+    print('\n最终 %d 个节点 = 测速合格 %d + 仅延迟合格（没排上测速）%d + IPv6 未测速 %d' % (
+        len(final_nodes), n_speed_in, len(final_aliases) - n_speed_in, len(v6_kept)))
+    print('  测速合格共 %d 个、仅延迟合格共 %d 个，--max-nodes=%d' % (
+        len(speed), len(untested_ok), a.max_nodes))
 
     # ---- 产出 -----------------------------------------------------------------
     by_source = {}
