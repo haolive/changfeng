@@ -211,15 +211,19 @@ def main():
             log('没发布：需要 GITHUB_TOKEN 环境变量，且至少有一个可用节点')
             return 0
         log('\n发布到 release tag best-cn …')
-        return publish(token, os.path.join(out_dir, 'nodes-cn.yaml'), kept)
+        return publish(token, os.path.join(out_dir, 'best-cn.yaml'), kept)
     return 0
 
 
-def publish(token, nodes_file, kept):
-    """把本机筛出来的清单发成 release 资产（只发节点清单，不含规则）。"""
+def publish(token, config_file, kept):
+    """把本机筛出来的结果发成 release 资产（完整配置，客户端可以直接当订阅导入）。
+
+    tag/资产名固定为 best-cn.yaml：它是**本机跑出来的快照**，不会自动更新，
+    每次在本机跑脚本（加 --publish）都会覆盖它。
+    """
     api = 'https://api.github.com'
     repo = 'haolive/changfeng'
-    tag, asset, title = 'best-cn', 'nodes-cn.yaml', '本机实测（国内可用）节点'
+    tag, asset, title = 'best-cn', 'best-cn.yaml', '本机实测（国内可用）订阅'
     headers = {'Authorization': 'Bearer ' + token, 'User-Agent': 'local-cn-filter',
                'Accept': 'application/vnd.github+json'}
 
@@ -250,7 +254,7 @@ def publish(token, nodes_file, kept):
     if not upload:
         log('  拿不到上传地址')
         return 1
-    with open(nodes_file, 'rb') as fh:
+    with open(config_file, 'rb') as fh:
         content = fh.read()
     req = urllib.request.Request(upload + '?name=' + asset, data=content, method='POST',
                                  headers={'Authorization': 'Bearer ' + token,
