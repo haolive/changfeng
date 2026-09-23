@@ -21,6 +21,10 @@ mihomo 解析 proxy-provider 时，遇到**第一个**字段非法的节点就�
    会判定成数字/布尔的标量，强制加引号。
    典型受害者：`short-id: 062898e8` —— Go 按科学计数法读成 6.2898e12，
    落到 hex.Decode 里就是 "invalid REALITY short ID"。加引号即恢复正常。
+6) 给"必须有 uTLS 但指纹不被 mihomo 支持"的节点补/改 `client-fingerprint: chrome`：
+   带 reality-opts 或 flow 的节点如果指纹是空 / `none` / `unsafe`（Xray 写法）之类，
+   mihomo 会退化成原生 TLS，然后报 `wrong clientFingerprint:...` 或
+   `vision: not a valid supported TLS connection`，该节点拨号直接失败。
 
 用法
 ----
@@ -144,6 +148,30 @@ def map_get(mapping_node, key):
     return None
 
 
+# mihomo component/tls/utls.go 的 GetFingerprint() 认识的值；"none" 和空值会被静默忽略
+# （= 不走 uTLS），其它值会打 `wrong clientFingerprint:<值>` 警告。
+KNOWN_FINGERPRINTS = {'chrome', 'firefox', 'safari', 'ios', 'android', 'edge', '360', 'qq',
+                      'random', 'randomized'}
+
+
+def fingerprint_ok(value):
+    """mihomo 能不能对这个 client-fingerprint 用 uTLS。"""
+    return str(value or '').strip().lower() in KNOWN_FINGERPRINTS
+
+
+def needs_utls(node):
+    """该节点是否必须有 uTLS 才能工作：
+
+    * 带 reality-opts → mihomo 直接报 "REALITY is based on uTLS, please set a client-fingerprint"；
+    * 带 flow（xtls-rprx-vision）→ 拿不到合法 TLS 连接时报
+      "vision: not a valid supported TLS connection"。
+    两种情况都会让这个节点拨号失败（只死它自己，不像非法字段那样废掉整个 provider）。
+    """
+    if map_get(node, 'reality-opts') is not None:
+        return True
+    return bool(str(scalar(map_get(node, 'flow')) or '').strip())
+
+
 def validate_node(node):
     """返回 (是否保留, 丢弃原因)。只看会导致 mihomo 报错的硬性字段。"""
     if not isinstance(node, yaml.MappingNode):
@@ -184,6 +212,41 @@ def fix_styles(node, repairs, path=''):
             fix_styles(v, repairs, ('%s.%s' % (path, key)) if path else key)
 
 
+def fix_fingerprints(nodes, repairs):
+    """修 `client-fingerprint`：mihomo 不认的值一律改成 chrome，缺失的按需补上。
+
+    上游会把 Xray 的 `fingerprint: unsafe`（含义是"不用 uTLS"）照抄成
+    `client-fingerprint: unsafe`，或者干脆不写这个字段。对 mihomo 的影响分两种：
+
+    * 节点**带 reality-opts 或 flow**：没有可用指纹时直接拨号失败
+      （日志 `wrong clientFingerprint:unsafe` / `vision: not a valid supported TLS connection`）
+      → 必须补上 `client-fingerprint: chrome`；
+    * 节点**不需要 uTLS**：能连上，但每次握手都打一行 `wrong clientFingerprint:<值>` 警告
+      → 把这种"写了但不认识的值"也改成 chrome，让日志安静（**缺失**的字段不动，
+      否则会给成百上千个正常节点凭空加字段）。
+
+    这类问题只死单个节点，不像非法字段那样废掉整个 provider；但既然能修就修。
+    """
+    fixed = 0
+    for node in nodes:
+        fp = map_get(node, 'client-fingerprint')
+        old = scalar(fp)
+        if fingerprint_ok(old):
+            continue
+        if fp is None and not needs_utls(node):
+            continue
+        if fp is not None:
+            fp.value = 'chrome'
+        else:
+            node.value.append((yaml.ScalarNode('tag:yaml.org,2002:str', 'client-fingerprint'),
+                               yaml.ScalarNode('tag:yaml.org,2002:str', 'chrome')))
+        name = scalar(map_get(node, 'name')) or '?'
+        repairs.append('%s.client-fingerprint=%r -> chrome（%s）' % (
+            name, old, '否则该节点拨不通' if needs_utls(node) else '消除内核告警'))
+        fixed += 1
+    return fixed
+
+
 # ---------------------------------------------------------------- 主流程
 
 def sanitize(text, src_label):
@@ -210,10 +273,13 @@ def sanitize(text, src_label):
             dropped.setdefault(key, []).append(why)
     seq.value = kept
 
-    repairs = []
+    quote_repairs = []
     for node in kept:
         nm = scalar(map_get(node, 'name')) or '?'
-        fix_styles(node, repairs, nm)
+        fix_styles(node, quote_repairs, nm)
+    fp_repairs = []
+    fp_fixed = fix_fingerprints(kept, fp_repairs)
+    repairs = quote_repairs + fp_repairs
 
     # 只保留 proxies 一个键（上游的 dns/rules/proxy-groups 对 provider 无意义）
     key_node = yaml.ScalarNode('tag:yaml.org,2002:str', 'proxies')
@@ -238,8 +304,12 @@ def sanitize(text, src_label):
         'dropped_count': total - len(kept),
         'dropped': {k: v[:10] for k, v in dropped.items()},
         'dropped_reasons': {k: len(v) for k, v in dropped.items()},
-        'quoted_scalars': repairs[:40],
-        'quoted_count': len(repairs),
+        'quoted_scalars': quote_repairs[:40],
+        'quoted_count': len(quote_repairs),
+        'fingerprints': fp_repairs[:40],
+        'fingerprint_fixed_count': fp_fixed,
+        'repairs': repairs[:40],
+        'repair_count': len(repairs),
         'bad_signature': bad_signature,
     }
 
@@ -352,14 +422,29 @@ proxies:
   - {name: dup, type: ss, server: 192.0.2.5, port: 8388, cipher: aes-128-gcm, password: x}
   - {name: dup, type: ss, server: 192.0.2.6, port: 8388, cipher: aes-128-gcm, password: y}
   - {name: no-port, type: ss, server: 192.0.2.7, cipher: aes-128-gcm, password: z}
+  - name: fp-unsafe-vision
+    type: vless
+    server: 192.0.2.8
+    port: 443
+    uuid: 5be7fb02-b6a5-450f-b041-3243b98e8420
+    flow: xtls-rprx-vision
+    client-fingerprint: unsafe
+  - name: fp-missing-reality
+    type: vless
+    server: 192.0.2.9
+    port: 443
+    uuid: 5be7fb02-b6a5-450f-b041-3243b98e8420
+    reality-opts:
+      public-key: Uvj5H9pDJP0HX2bN7NN7sCQwVCrC5N2NbKf-yuy1ikE
+  - {name: fp-unsafe-plain, type: ss, server: 192.0.2.10, port: 8388, cipher: aes-128-gcm, password: q, client-fingerprint: unsafe}
 """
 
 
 def selftest():
     out, stats = sanitize(SELFTEST_SRC, 'selftest')
     fails = []
-    if stats['kept'] != 4:
-        fails.append('kept=%d 预期 4' % stats['kept'])
+    if stats['kept'] != 7:
+        fails.append('kept=%d 预期 7' % stats['kept'])
     for expect in ['short-id: "062898e8"', 'password: "08"']:
         if expect not in out:
             fails.append('输出里没有 %r' % expect)
@@ -370,6 +455,18 @@ def selftest():
             fails.append('输出里不该有 %r' % banned)
     if not any('public-key' in k for k in stats['dropped']):
         fails.append('没记录 public-key 丢弃原因：%s' % stats['dropped'])
+    # 指纹修复：3 个需要 uTLS 的（补上）+ 1 个写了 unsafe 的普通节点（改掉）
+    if stats.get('fingerprint_fixed_count') != 4:
+        fails.append('指纹修复数=%s 预期 4' % stats.get('fingerprint_fixed_count'))
+    seg = out.split('name: fp-unsafe-vision')[1].split('- name:')[0]
+    if 'client-fingerprint: chrome' not in seg:
+        fails.append('fp-unsafe-vision 的指纹没被改成 chrome')
+    seg2 = out.split('name: fp-missing-reality')[1].split('- name:')[0]
+    if 'client-fingerprint: chrome' not in seg2:
+        fails.append('fp-missing-reality 没补上 client-fingerprint: chrome')
+    seg3 = out.split('name: fp-unsafe-plain')[1]
+    if 'client-fingerprint: chrome' not in seg3:
+        fails.append('写了未知指纹的普通节点也应改成 chrome（消除内核告警）')
     print('selftest 输出：')
     print(out)
     print('stats:', json.dumps(stats, ensure_ascii=False, indent=2))
@@ -404,12 +501,15 @@ def main():
         os.makedirs(out_dir, exist_ok=True)
     with open(args.out, 'w', encoding='utf-8', newline='\n') as fh:
         fh.write(out_text)
-    print('原始 %d -> 保留 %d（剔除 %d，修引号 %d）' % (
-        stats['total'], stats['kept'], stats['dropped_count'], stats['quoted_count']))
+    print('原始 %d -> 保留 %d（剔除 %d，修引号 %d，修指纹 %d）' % (
+        stats['total'], stats['kept'], stats['dropped_count'],
+        stats['quoted_count'], stats.get('fingerprint_fixed_count', 0)))
     for k, v in stats['dropped'].items():
         print('  剔除[%s] x%d 例：%s' % (k, len(v), v[:3]))
     for q in stats['quoted_scalars'][:10]:
         print('  修引号：%s' % q)
+    for q in stats.get('fingerprints', [])[:10]:
+        print('  修指纹：%s' % q)
 
     ok = True
     if args.core:
