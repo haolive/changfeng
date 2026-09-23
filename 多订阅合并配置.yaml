@@ -11,7 +11,7 @@
 #      —— 这行是 rule-provider 初始化时内核打印的，名字里的【配置已加载】前缀纯为提示用
 #
 # 特性：
-#   * 6 个订阅通过 proxy-providers 合并，节点名前缀 S1~S6 区分来源
+#   * 多个订阅通过 proxy-providers 合并，节点名前缀 S1~Sn 区分来源
 #   * provider 层 exclude-filter 自动剔除免费池的"官网/剩余流量/过期"等垃圾节点
 #   * GEOSITE/GEOIP 分流规则（使用内置 geo 数据库，无需额外下载规则集）
 #   * AWAvenue 广告规则集（rule-providers 远程拉取，自动更新，952 条国内 App 广告域名）
@@ -23,25 +23,18 @@
 # ============================================================
 
 # ---------------- 订阅节点来源 ----------------
-# 节点前缀映射：
-#   S1 = ripaojiedian/freenode
-#   S2 = shaoyouvip/free
-#   S3 = sunmiao4458/free-proxy-airport
-#   S4 = zhuhaiuk/free-nodes
-#   S5 = sub.445569.xyz
-#   S6 = kooker/FreeSubsCheck
 proxy-providers:
-  s1-freenode:
+  s1-NoMoreWalls:
     type: http
-    path: ./providers/s1_freenode.yaml
-    url: "https://github.boki.moe/https://raw.github.com/ripaojiedian/freenode/main/clash"
+    path: ./providers/s1_list.meta.yml
+    url: "https://github.boki.moe/https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.meta.yml"
     interval: 3600            # 更新间隔（秒），免费池变动频繁，可按需调小（如 1800）
     proxy: DIRECT             # 拉取走直连：boki 直连实测 1.5s，不该被死节点拖住
     health-check:
       enable: true
       url: "https://www.gstatic.com/generate_204"
       interval: 300
-      timeout: 3000
+      timeout: 2000
       lazy: true
     override:
       additional-prefix: "S1 |"
@@ -57,7 +50,7 @@ proxy-providers:
       enable: true
       url: "https://www.gstatic.com/generate_204"
       interval: 300
-      timeout: 3000
+      timeout: 2000
       lazy: true
     override:
       additional-prefix: "S2 |"
@@ -73,7 +66,7 @@ proxy-providers:
       enable: true
       url: "https://www.gstatic.com/generate_204"
       interval: 300
-      timeout: 3000
+      timeout: 2000
       lazy: true
     override:
       additional-prefix: "S3 |"
@@ -89,7 +82,7 @@ proxy-providers:
       enable: true
       url: "https://www.gstatic.com/generate_204"
       interval: 300
-      timeout: 3000
+      timeout: 2000
       lazy: true
     override:
       additional-prefix: "S4 |"
@@ -107,7 +100,7 @@ proxy-providers:
       enable: true
       url: "https://www.gstatic.com/generate_204"
       interval: 300
-      timeout: 3000
+      timeout: 2000
       lazy: true
     override:
       additional-prefix: "S5 |"
@@ -124,18 +117,78 @@ proxy-providers:
       enable: true
       url: "https://www.gstatic.com/generate_204"
       interval: 300
-      timeout: 3000
+      timeout: 2000
       lazy: true
     override:
       additional-prefix: "S6 |"
       skip-cert-verify: true
     exclude-filter: '(?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)'
+  s7-proxypool:
+    type: http
+    path: ./providers/s7_proxypool.yaml
+    url: https://github.boki.moe/https://raw.githubusercontent.com/snakem982/proxypool/main/source/clash-meta-2.yaml
+    interval: 3600
+    proxy: DIRECT
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+      timeout: 2000
+      lazy: true
+    override:
+      additional-prefix: S7 |
+      skip-cert-verify: true
+    exclude-filter: (?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)
+  s8-ai-crawler-v2:
+    type: http
+    path: ./providers/s8_aicrawler.yaml
+    url: https://github.boki.moe/https://raw.githubusercontent.com/Barabama/FreeNodes/refs/heads/feat/ai-crawler-v2/nodes/merged.yaml
+    interval: 3600
+    proxy: DIRECT
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+      timeout: 2000
+      lazy: true
+    override:
+      additional-prefix: S8 |
+      skip-cert-verify: true
+    exclude-filter: (?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)
+  s9-free18:
+    type: http
+    path: ./providers/s9_free18.yaml
+    url: https://github.boki.moe/https://raw.githubusercontent.com/free18/v2ray/refs/heads/main/c.yaml
+    interval: 3600
+    proxy: DIRECT
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+      timeout: 2000
+      lazy: true
+    override:
+      additional-prefix: S9 |
+      skip-cert-verify: true
+    exclude-filter: (?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)
+  s10-airport:
+    type: http
+    path: ./providers/s10_airport.yaml
+    url: https://github.boki.moe/https://raw.githubusercontent.com/dongchengjie/airport/refs/heads/main/subs/merged/tested_within.yaml
+    interval: 3600
+    proxy: DIRECT
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+      timeout: 2000
+      lazy: true
+    override:
+      additional-prefix: S10 |
+      skip-cert-verify: true
+    exclude-filter: (?i)(剩余|流量|到期|过期|重置|官网|网址|订阅|tg频道|机场|邮箱|客服|工单|通知|倒卖|邀请|返利|优惠|福利|公益|注册|登录|客户端|永久|公告|导航|收藏|教程|版本|traffic|expire|expired|http|t\.me)
 
 # ---------------- 广告规则集 ----------------
-# 社区维护的国内 App 广告域名清单（开屏/信息流/SDK），与内置 GEOSITE,category-ads-all 互补：
-# 前者偏国外广告域名，本规则集偏国内。共 952 条纯域名规则（DOMAIN 936 / DOMAIN-SUFFIX 12 /
-# DOMAIN-KEYWORD 4），无 IP-CIDR，不影响 fake-ip 解析。
-# 更新频率高（数天一次），interval 一天拉一次足够；拉取失败会自动沿用本地缓存文件。
 rule-providers:
   # 名字里的【配置已加载】是给日志看的中文标记：内核启动/重载时会打印
   #   Start initial provider 【配置已加载】AWAvenue广告规则
