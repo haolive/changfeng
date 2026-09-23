@@ -278,6 +278,18 @@ def is_ipv6_literal(server):
         return False
 
 
+def is_domain_server(server):
+    """server 是不是域名（而不是裸 IP）—— 域名型的多是 CDN 前置，国内可达率明显更高。"""
+    s = str(server or '').strip()
+    if not s or ':' in s:
+        return False
+    try:
+        ipaddress.ip_address(s)
+        return False          # 能当 IP 解析 → 不是域名
+    except ValueError:
+        return True
+
+
 def endpoint_key(node):
     """落地端点身份（不含凭据）：同一台机器 + 同一个伪装参数 = 同一个节点。"""
     return json.dumps({k: node.get(k) for k in
@@ -373,6 +385,15 @@ def main():
                     help='给测试用的内核配上 DoH DNS（可重复指定，如 --dns-doh https://doh.pub/dns-query）。'
                          '默认不启用 DNS（用系统解析器）：境外 runner 上没问题，但国内本机跑时系统 DNS 可能'
                          '给出被污染的解析结果，好节点会被冤枉，建议本机跑时配上和客户端一致的 DoH')
+    ap.add_argument('--fast-out', help='额外产出"优先订阅"完整配置（只留经验上国内可达率高的类型）')
+    ap.add_argument('--fast-nodes-out', help='额外产出"优先订阅"的纯节点清单')
+    ap.add_argument('--fast-notes', help='写一份"优先订阅"的发布说明')
+    ap.add_argument('--fast-types', default='http,anytls',
+                    help='优先订阅保留哪些节点类型（逗号分隔）。依据：2026-09-24 实测 http 62%%、'
+                         'anytls 67%% 国内可达，而 vmess 1.5%%、ss 1.6%%、vless 9.9%%')
+    ap.add_argument('--fast-domains', action='store_true',
+                    help='优先订阅里也保留"server 是域名"的节点（可达率约 35%%，能多留约 10%% 的可用节点）')
+    ap.add_argument('--fast-max-nodes', type=int, help='优先订阅最多留多少个（默认同 --max-nodes）')
     ap.add_argument('--source-label', help='产物头部"源模板"显示的名字（默认取 --config 的文件名，'
                                            '不要写绝对路径 —— 产物会公开发布）')
     ap.add_argument('--test-location', default='GitHub runner（境外机房）',
@@ -540,22 +561,51 @@ def main():
     scored = sorted(speed, key=lambda al: (ok_latency[al], -speed[al]))
     untested_ok = [al for al in sorted(ok_latency, key=lambda x: ok_latency[x]) if al not in speed
                    and al not in speed_fail]        # 超过 --speed-limit 没排上测速的
-    final_aliases, seen_endpoint = [], set()
-    for al in scored + untested_ok:
-        node = alias_map[al]
-        k = endpoint_key(node)
-        if k in seen_endpoint:
-            continue
-        seen_endpoint.add(k)
-        final_aliases.append(al)
-        if len(final_aliases) >= a.max_nodes:
-            break
+
+    def pick(aliases, cap, pred=None):
+        """按"延迟优先、端点去重"的顺序取前 cap 个（pred 用于只挑某一类）。"""
+        out, seen = [], set()
+        for al in aliases:
+            node = alias_map[al]
+            if pred and not pred(node):
+                continue
+            k = endpoint_key(node)
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(al)
+            if len(out) >= cap:
+                break
+        return out
+
+    candidates = scored + untested_ok
+    final_aliases = pick(candidates, a.max_nodes)
     final_nodes = [alias_map[al] for al in final_aliases] + v6_kept
     n_speed_in = sum(1 for al in final_aliases if al in speed)
     print('\n最终 %d 个节点 = 测速合格 %d + 仅延迟合格（没排上测速）%d + IPv6 未测速 %d' % (
         len(final_nodes), n_speed_in, len(final_aliases) - n_speed_in, len(v6_kept)))
     print('  测速合格共 %d 个、仅延迟合格共 %d 个，--max-nodes=%d' % (
         len(speed), len(untested_ok), a.max_nodes))
+
+    # ---- 优先订阅（fast）：只留"经验上从国内连得通"的类型 ----------------------
+    # 依据见 README-节点测速过滤.md：2026-09-24 实测（602 个节点、从大陆本机逐个 TCP 探测），
+    # type=http 62.0% / anytls 66.7% 可达，而 vmess 1.5% / ss 1.6% / vless 9.9%；
+    # 只留高可达率类型 → 列表从 602 缩到 161，但保住了 83% 的可用节点。
+    # ⚠ 这是**经验筛选**，不是"从国内实测过"（GitHub runner 在境外，量不到那一跳）。
+    fast_types = {t.strip().lower() for t in str(a.fast_types or '').split(',') if t.strip()}
+    fast_aliases, fast_nodes, fb = [], [], {}
+
+    def fast_ok(node):
+        if str(node.get('type') or '').lower() in fast_types:
+            return True
+        return a.fast_domains and is_domain_server(node.get('server'))
+
+    if a.fast_out or a.fast_nodes_out:
+        fast_aliases = pick(candidates, a.fast_max_nodes or a.max_nodes, fast_ok)
+        fast_nodes = [alias_map[al] for al in fast_aliases] + [n for n in v6_kept if fast_ok(n)]
+        print('优先订阅（--fast-types %s%s）：%d 个节点' % (
+            a.fast_types, '，含域名型' if a.fast_domains else '',
+            len(fast_nodes)))
 
     # ---- 产出 -----------------------------------------------------------------
     by_source = {}
@@ -594,6 +644,68 @@ def main():
         with open(a.out, 'w', encoding='utf-8', newline='\n') as fh:
             fh.write(text)
         print('写出 %s' % a.out)
+
+    # ---- 优先订阅的产物 -------------------------------------------------------
+    fast_base = 'https://github.com/haolive/changfeng/releases/download/fast'
+    if a.fast_nodes_out or a.fast_out:
+        fb = {}
+        for n in fast_nodes:
+            nm = str(n.get('name', ''))
+            src = nm.split(' |')[0] if ' |' in nm else '其它'
+            fb[src] = fb.get(src, 0) + 1
+        keep_ratio = (100.0 * len(fast_nodes) / len(final_nodes)) if final_nodes else 0
+        if a.fast_nodes_out:
+            with open(a.fast_nodes_out, 'w', encoding='utf-8', newline='\n') as fh:
+                fh.write('# 由 tools/test_nodes.py 自动生成：优先订阅（只留经验上国内可达率高的类型）\n'
+                         '# 生成时间: {ts}\n'
+                         '# 节点数: {n}；保留类型: {t}{d}\n'
+                         '# 各源: {by}\n'.format(
+                             ts=ts, n=len(fast_nodes), t=a.fast_types,
+                             d='（含域名型）' if a.fast_domains else '',
+                             by=', '.join('%s=%d' % kv for kv in sorted(fb.items()))))
+                sp.dump_go_safe({'proxies': fast_nodes}, fh)
+            print('写出 %s' % a.fast_nodes_out)
+        if a.fast_out:
+            fast_header = (
+                '# 由 tools/test_nodes.py 自动生成，请勿手工编辑（改动会被下次生成覆盖）。\n'
+                '# 这是「优先订阅」：在 best 的基础上，只保留**经验上从国内连得通**的节点类型\n'
+                '#   （--fast-types {t}{d}），类型筛选依据与实测数据见仓库 README-节点测速过滤.md。\n'
+                '# 源模板: {cfg}；生成时间: {ts}\n'
+                '# 节点数: {n}（占 best 的 {ratio:.0f}%）\n'
+                '# ⚠ 这是**经验筛选**，不是"从国内实测过"：GitHub runner 在境外，量不到「你 → 节点」那一跳。\n'
+                '#   想 100% 确认，只能在你自己的机器上再筛一遍。\n').format(
+                t=a.fast_types, d='，含域名型' if a.fast_domains else '',
+                cfg=a.source_label or os.path.basename(a.config), ts=ts,
+                n=len(fast_nodes), ratio=keep_ratio)
+            with open(a.fast_out, 'w', encoding='utf-8', newline='\n') as fh:
+                fh.write(build_output_config(a.config, fast_nodes, fast_header))
+            print('写出 %s' % a.fast_out)
+    if a.fast_notes:
+        with open(a.fast_notes, 'w', encoding='utf-8', newline='\n') as fh:
+            fh.write('# fast（优先订阅）\n\n')
+            fh.write('- 生成时间：%s\n' % ts)
+            fh.write('- 节点数：**%d**（占 best 的 %.0f%%：best %d 个 → 这里 %d 个）\n'
+                     % (len(fast_nodes), keep_ratio, len(final_nodes), len(fast_nodes)))
+            fh.write('- 保留的节点类型：`%s`%s\n' % (a.fast_types, '（含域名型）' if a.fast_domains else ''))
+            fh.write('- 各源：%s\n' % ', '.join('%s=%d' % kv for kv in sorted(fb.items())))
+            fh.write('\n**为什么只留这些类型**：2026-09-24 从大陆本机对 `best` 的 602 个节点逐个做\n'
+                     'TCP 探测，按类型统计"国内能否连上"：\n\n'
+                     '| 类型 | 样本 | 国内可达率 |\n|---|---|---|\n'
+                     '| `http` | 158 | **62.0%** |\n'
+                     '| `anytls` | 3 | 66.7% |\n'
+                     '| `vless` | 111 | 9.9% |\n'
+                     '| `vmess` | 67 | 1.5% |\n'
+                     '| `ss` | 182 | 1.6% |\n\n'
+                     '整体只有 19.9% 可达。所以按类型收窄后，**列表缩到 1/4，却保住了 83%% 的可用节点** ——\n'
+                     '客户端里"一片超时"的观感会明显改善。\n')
+            fh.write('\nClash Verge 里直接当订阅用：\n\n```\n%s/best.yaml\n```\n' % fast_base)
+            fh.write('\n只想要节点清单（自己组装配置时当 proxy-provider 用）：\n\n```\n%s/nodes.yaml\n```\n'
+                     % fast_base)
+            fh.write('\n> ⚠ 这是**经验筛选**，不是"从国内实测过"：GitHub runner 在境外机房，\n'
+                     '> 量不到「你 → 节点」那一跳（GFW 那一段只有你自己的网络能看见）。\n'
+                     '> 想要 100% 确认，只能在你自己的机器上再筛一遍（见 README 里的 `tools/local_cn_filter.py`）。\n'
+                     '> 本资产每小时自动更新，与 `best` 同步。\n')
+        print('写出 %s' % a.fast_notes)
 
     # ---- 统计 ----------------------------------------------------------------
     pool_stats = {}
@@ -638,6 +750,9 @@ def main():
         'ipv6': {'literals': len(v6_nodes), 'test_host_has_ipv6': test_host_has_v6,
                  'policy': a.ipv6_policy, 'kept_untested': len(v6_kept), 'dropped': len(v6_dropped)},
         'max_nodes': a.max_nodes,
+        'fast': {'nodes': len(fast_nodes), 'types': a.fast_types, 'with_domains': a.fast_domains,
+                 'keep_ratio': round((100.0 * len(fast_nodes) / len(final_nodes)) if final_nodes else 0, 1),
+                 'by_source': fb if (a.fast_out or a.fast_nodes_out) else {}},
         'dedup_or_cap_dropped': len(scored) + len(untested_ok) - len(final_aliases),
         'dropped_count': len(nodes) - len(final_nodes),
         'dropped_reasons': drop_reasons,

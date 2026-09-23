@@ -17,7 +17,7 @@
 | `tools/fetch_node_pool.py` | 同左 | 读配置里的 proxy-providers：逐源拉取、按字段清洗、加前缀、跨源去重 → 节点池 |
 | `tools/test_nodes.py` | 同左 | 起临时内核做两轮测速（延迟 / 下载），产出 `best.yaml` 和 `nodes.yaml` |
 | `tools/sanitize_provider.py` | 同左 | 按字段清洗单个源（REALITY 字段、YAML 类型陷阱、client-fingerprint） |
-| `tools/local_cn_filter.py` | 同左 | 在自己网络下复筛节点，发布成 release `fast` |
+| `tools/local_cn_filter.py` | 同左 | **可选**：在自己网络下复筛节点（产物留本地，不参与 release 生成） |
 | `tools/keepalive.py` | 同左 | 按需提交统计文件（防止公开仓库 60 天无提交被停用定时任务） |
 
 **为什么每个源都要先"按字段清洗"**：上游免费池（尤其 s8 那条 `Barabama/FreeNodes`
@@ -36,7 +36,7 @@ release 下两个 tag，各自都是两个资产：
 |---|---|---|
 | `best`（每小时自动更新） | `best.yaml` | **完整配置**：把「多订阅合并配置.yaml」的 `proxy-providers` 段换成测速后的 inline `proxies`，DNS / 策略组 / 分流规则 / 广告规则集原样保留。客户端里直接当订阅加即可 |
 | | `nodes.yaml` | 只有 `proxies` 的清单。想保留自己那份配置、只把节点换掉的话，把它当 proxy-provider 用 |
-| `fast`（手动刷新） | `best.yaml` / `nodes.yaml` | 同上结构，但节点是**在你自己的网络下复筛过的**（见「本机筛节点」一节） |
+| `fast`（每小时自动更新） | `best.yaml` / `nodes.yaml` | 同结构，但**只保留经验上从国内连得通的节点类型**（`http` / `anytls`），列表缩到约 1/4、可用率明显更高。见下面「fast 是怎么筛的」 |
 
 地址：
 
@@ -52,6 +52,39 @@ https://github.com/haolive/changfeng/releases/download/fast/nodes.yaml
 
 Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**。想让它跟着每小时更新，
 把该 profile 的「更新间隔」调小（Verge 默认很长），或者每次手动点一下更新。
+
+## fast 是怎么筛的（为什么它不是"国内实测"）
+
+**先说结论：云端做不到"从国内实测"**。`fast` 想解决的是「你 → 节点」这一跳通不通
+（也就是 GFW 拦不拦），而 GitHub 的 runner 在美国机房，它那条链路**看不见 GFW**。
+公开的多地探测服务（check-host.net 之类）也**没有大陆节点**（2026-09-24 查过：58 个节点里
+只有香港，而香港在墙外，测不出 GFW）。这是拓扑决定的，不是实现偷懒。
+
+所以 `fast` 走的是**经验筛选**：找出「云端能算出来、且和国内可达性强相关」的特征。
+2026-09-24 从大陆本机对 `best` 的 602 个节点逐个做 TCP 探测（= 真实国内可达性），
+再按类型统计：
+
+| 类型 | 样本 | 国内可达率 |
+|---|---|---|
+| `anytls` | 3 | 66.7% |
+| `http` | 158 | **62.0%** |
+| `trojan` | 20 | 15.0% |
+| `vless` | 111 | 9.9% |
+| `hysteria2` | 26 | 3.8% |
+| `ss` | 182 | 1.6% |
+| `vmess` | 67 | 1.5% |
+| （整体） | 602 | 19.9% |
+
+结论很清楚：**只留 `http` / `anytls`，列表从 602 缩到 161，但保住了 83% 的可用节点**
+（120 个可用里留下 100 个）—— 客户端里"一片超时"的观感会明显改善。
+顺手也验证了另一个猜测是错的：Cloudflare 前置节点并不特殊（20.0% vs 整体 19.9%）。
+
+要改这个规则：调 `refresh-nodes.yml` 里的 `--fast-types`（逗号分隔的类型名）。
+想更宽松一点、多留约 10% 的可用节点（代价是列表变长、可用率降到 52%），加 `--fast-domains`。
+
+> ⚠ 它是**经验筛选**，不是"从国内实测过"：筛出来的节点里仍会有连不上的（约 4 成）。
+> 想要 100% 确认，只能在你自己的机器上再筛一遍 —— 见下面「在自己的网络下复筛节点」，
+> 那是可选工具，产物只留在本地，不参与 release 的生成。
 
 > 注意：`best.yaml` 是**生成物**，别在它上面手工改配置（下次运行会覆盖）。
 > 配置要改就改仓库根目录的 `多订阅合并配置.yaml` —— 它是源列表与规则的唯一真源，
@@ -123,7 +156,7 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
    **8.3 秒**才返回 200 —— 而配置里 `自动选择` 组的 `timeout` 是 2000ms，测速轮 3 秒，
    于是"慢但能用"的节点在界面上全被标成超时、也不会被 `自动选择` 挑中。
    所以配合这份订阅，客户端的组超时建议放宽（`timeout: 5000` 起步）；
-   想让"看到的确实都能用"，就用上面的 `tools/local_cn_filter.py` 在本机筛一遍。
+   想少看到死节点，直接用 `fast`（只留 `http`/`anytls`，可用率从 20% 提到 62%）。
 9. **CF 优选 IP 试过了、没用（别再折腾）**：拿 `stock.hostmonit.com` / `api.hostmonit.com`
    的国内优选 CF IP（52~161ms、0% 丢包）跟池子里的 CF 前置节点做对照实验
    （同一份节点配置，一半保留原 `server`、一半换成优选 IP，成对比较）：
@@ -139,13 +172,13 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
   所以看到 workflow 红了一次不用慌，看日志定位就行。
 - 想看"现在到底哪些节点活着"，直接把 release 的 `best.yaml` 下下来看 `proxies:` 段（按延迟排序）。
 
-## 在自己的网络下复筛节点（可选）
+## 在自己的网络下复筛节点（可选，不参与 release）
 
-**想要"客户端里看到的确实都能用"，只能用本机网络测一遍** —— 仓库那条流水线在境外机房，
-它量不到「你 → 节点」这一跳。为此有个一键脚本：
+`fast` 是**云端按类型经验筛的**（见上）。如果你想 100% 确认"从我这条线到底哪些能用"，
+可以在自己机器上再筛一遍 —— 这是可选工具，**产物只留在本地**，不会覆盖 release：
 
 ```powershell
-# 候选 = release 里那份 best.yaml（流水线筛过"全球活着"的），用本机网络实测一遍
+# 候选 = release 里那份 best.yaml，用本机网络实测一遍
 python tools/local_cn_filter.py --repo "<仓库目录>"
 
 # 候选换成 10 个源合并的完整池子（慢很多，但可能捞出流水线没留的节点）
@@ -159,18 +192,8 @@ python tools/local_cn_filter.py --limit 300
 找不到时用 `--core "<verge-mihomo.exe 的路径>"` 指定。
 
 产物在 `_cn_filter\best-cn.yaml`（完整配置，Verge 里「导入本地配置」）和 `nodes-cn.yaml`。
-加 `--publish` 可以把它们发成 release **`fast`** 的 `best.yaml` / `nodes.yaml`（需要 `GITHUB_TOKEN` 环境变量）：
-
-```
-https://github.com/haolive/changfeng/releases/download/fast/best.yaml
-https://github.com/haolive/changfeng/releases/download/fast/nodes.yaml
-```
-
-> ⚠ `fast` 是**快照**，不自动更新（这一轮筛选依赖本地网络，GitHub 上没法定时跑）。
-> 想刷新就再跑一次脚本 + `--publish`，会覆盖同一份资产。
-> 2026-09-24 实测一次：仓库那份 602 个候选 → 延迟合格 55 → 测速合格 6（另 2 个 IPv6 未测）；
-> 用 `curl` 完全绕过 mihomo 复验：gstatic 返回 204、256KB 也真能下下来 ✓。
-> 筛出来的节点里有 `84.17.47.x:9002` 这类 http 型 —— 和当时手动选中的节点是同族。
+2026-09-24 实测一次：602 个候选 → 延迟合格 49 → 测速合格 37；
+用 `curl` 完全绕过 mihomo 复验：gstatic 返回 204、256KB 也真能下下来 ✓。
 
 > 脚本内部已经处理了两件容易踩的事：
 > 1. **DoH DNS**（`--dns-doh doh.pub / alidns`）：国内系统 DNS 对 Google/CF 域名可能给出被污染的结果，

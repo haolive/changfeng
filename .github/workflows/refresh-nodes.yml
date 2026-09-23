@@ -61,7 +61,7 @@ jobs:
             --out dist/pool.yaml \
             --stats dist/pool-stats.json
 
-      - name: 逐个测速（延迟 + 下载）
+      - name: 逐个测速（延迟 + 下载），同时产出 best 与 fast
         run: |
           set -euo pipefail
           python tools/test_nodes.py \
@@ -70,9 +70,13 @@ jobs:
             --core ./mihomo \
             --out dist/best.yaml \
             --nodes-out dist/nodes.yaml \
+            --notes dist/best-notes.md \
+            --fast-out dist/fast.yaml \
+            --fast-nodes-out dist/fast-nodes.yaml \
+            --fast-notes dist/fast-notes.md \
+            --fast-types "http,anytls" \
             --stats dist/filter-stats.json \
             --pool-stats dist/pool-stats.json \
-            --notes dist/release-notes.md \
             --core-log dist/core.log \
             --latency-timeout 3000 \
             --max-latency 2000 \
@@ -99,22 +103,30 @@ jobs:
           done
           if [ "$ok" = "1" ]; then
             ./mihomo -t -f dist/best.yaml -d "$geodir"
+            ./mihomo -t -f dist/fast.yaml -d "$geodir"
             echo "产物通过内核校验"
           else
             echo "::warning::geo 数据没拉全，跳过 mihomo -t 校验（与产物本身无关）"
           fi
 
-      - name: 发布到 release（固定 tag best）
+      # 两个 tag：best（全量、全球可达性过滤）+ fast（在 best 基础上按类型收窄，见 --fast-types）
+      - name: 发布到 release（tag best 与 fast）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           gh release view best >/dev/null 2>&1 || gh release create best \
-            --title "best（测速过滤后的订阅）" \
-            --notes-file dist/release-notes.md
+            --title "best（测速过滤后的订阅）" --notes-file dist/best-notes.md
           gh release upload best dist/best.yaml dist/nodes.yaml --clobber
-          gh release edit best --notes-file dist/release-notes.md
+          gh release edit best --notes-file dist/best-notes.md
+
+          gh release view fast >/dev/null 2>&1 || gh release create fast \
+            --title "fast（优先订阅）" --notes-file dist/fast-notes.md
+          gh release upload fast dist/fast.yaml dist/fast-nodes.yaml --clobber
+          gh release edit fast --notes-file dist/fast-notes.md
+
           echo "已更新 https://github.com/${{ github.repository }}/releases/download/best/best.yaml"
+          echo "已更新 https://github.com/${{ github.repository }}/releases/download/fast/best.yaml"
 
       - name: 保存测速日志（排查用）
         if: always()
