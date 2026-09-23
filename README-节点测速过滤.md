@@ -22,19 +22,25 @@
 
 ## 产物怎么用
 
-release tag `best` 下两个资产（每小时覆盖更新，不涨仓库体积）：
+release 下两个 tag，各自都是两个资产：
 
-| 资产 | 用途 |
-|---|---|
-| `best.yaml` | **完整配置**：把「多订阅合并配置.yaml」的 `proxy-providers` 段换成测速后的 inline `proxies`，DNS / 策略组 / 分流规则 / 广告规则集原样保留。客户端里直接当订阅加即可 |
-| `nodes.yaml` | 只有 `proxies` 的清单。想保留自己那份配置、只把节点换掉的话，把它当 proxy-provider 用 |
+| tag | 资产 | 用途 |
+|---|---|---|
+| `best`（每小时自动更新） | `best.yaml` | **完整配置**：把「多订阅合并配置.yaml」的 `proxy-providers` 段换成测速后的 inline `proxies`，DNS / 策略组 / 分流规则 / 广告规则集原样保留。客户端里直接当订阅加即可 |
+| | `nodes.yaml` | 只有 `proxies` 的清单。想保留自己那份配置、只把节点换掉的话，把它当 proxy-provider 用 |
+| `fast`（手动刷新） | `best.yaml` / `nodes.yaml` | 同上结构，但节点是**在你自己的网络下复筛过的**（见「本机筛节点」一节） |
 
-带镜像前缀的地址（本机直连 github.com 慢；实测 boki 前缀 5~7 秒下完）：
+地址：
 
 ```
-https://github.boki.moe/https://github.com/haolive/changfeng/releases/download/best/best.yaml
-https://github.boki.moe/https://github.com/haolive/changfeng/releases/download/best/nodes.yaml
+https://github.com/haolive/changfeng/releases/download/best/best.yaml
+https://github.com/haolive/changfeng/releases/download/best/nodes.yaml
+https://github.com/haolive/changfeng/releases/download/fast/best.yaml
+https://github.com/haolive/changfeng/releases/download/fast/nodes.yaml
 ```
+
+> 这里写的是**纯 GitHub 地址**。直连慢的时候，在客户端里自己往前面套一个镜像前缀即可
+> （例如 `https://github.boki.moe/` + 上面的地址），换镜像不用改仓库里的任何东西。
 
 Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**。想让它跟着每小时更新，
 把该 profile 的「更新间隔」调小（Verge 默认很长），或者每次手动点一下更新。
@@ -125,7 +131,7 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
   所以看到 workflow 红了一次不用慌，看日志定位就行。
 - 想看"现在到底哪些节点活着"，直接把 release 的 `best.yaml` 下下来看 `proxies:` 段（按延迟排序）。
 
-## 本机自测 / 本机筛节点（国内网络）
+## 在自己的网络下复筛节点（可选）
 
 **想要"客户端里看到的确实都能用"，只能用本机网络测一遍** —— 仓库那条流水线在境外机房，
 它量不到「你 → 节点」这一跳。为此有个一键脚本：
@@ -143,15 +149,15 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
 ```
 
 产物在 `_cn_filter\best-cn.yaml`（完整配置，Verge 里「导入本地配置」）和 `nodes-cn.yaml`。
-加 `--publish` 可以把结果发成 release 资产（需要 `GITHUB_TOKEN` 环境变量），
-发布地址固定为：
+加 `--publish` 可以把它们发成 release **`fast`** 的 `best.yaml` / `nodes.yaml`（需要 `GITHUB_TOKEN` 环境变量）：
 
 ```
-https://github.boki.moe/https://github.com/haolive/changfeng/releases/download/best-cn/best-cn.yaml
+https://github.com/haolive/changfeng/releases/download/fast/best.yaml
+https://github.com/haolive/changfeng/releases/download/fast/nodes.yaml
 ```
 
-> ⚠ 它是**你本机跑出来的快照**，不自动更新（只有你的网络能测国内链路，GitHub 上没法定时跑）。
-> 想刷新就再跑一次脚本 + `--publish`，会覆盖同一个资产。
+> ⚠ `fast` 是**快照**，不自动更新（这一轮筛选依赖本地网络，GitHub 上没法定时跑）。
+> 想刷新就再跑一次脚本 + `--publish`，会覆盖同一份资产。
 > 2026-09-24 实测一次：仓库那份 602 个候选 → 延迟合格 55 → 测速合格 6（另 2 个 IPv6 未测）；
 > 用 `curl` 完全绕过 mihomo 复验：gstatic 返回 204、256KB 也真能下下来 ✓。
 > 筛出来的节点里有 `84.17.47.x:9002` 这类 http 型 —— 和当时手动选中的节点是同族。

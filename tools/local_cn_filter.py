@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""本机（国内）筛节点：拿仓库发布的订阅当候选，用**你这台机器的网络**实测一遍，
-产出一份「国内实测可用」的配置。
+"""本机筛节点：拿仓库发布的订阅当候选，用**你这台机器的网络**实测一遍，
+产出一份"在你这条链路上确实能用"的配置，发布成 release `fast`。
 
 为什么需要它
 ------------
-仓库那条流水线跑在境外机房，它只能证明「节点活着、能跑流量」，证明不了「从国内连得上」。
+仓库那条流水线跑在境外机房，它只能证明「节点活着、能跑流量」，证明不了「从你这里连得上」。
 2026-09-23 实测：同一份订阅（602 个节点），境外 runner 侧 18% 的服务器 TCP 可达，
-而国内客户端里大部分显示超时 —— 因为「你 → 节点」这一跳只有你自己的网络能量到。
+而客户端里大部分显示超时 —— 因为「你 → 节点」这一跳只有你自己的网络能量到。
 想让客户端里"看到的确实都能用"，就得在本机测一遍。免费池节点随时在换，
 所以这份清单**短是正常的**（几十个甚至十几个都够用），它换来的是"每条都真能用"。
 
@@ -17,18 +17,19 @@
    `--full` 则改用 10 个源合并出来的完整池子（慢很多，但可能捞出流水线没留的节点）。
 2. 用本机 mihomo 实测：延迟轮 + 真下 512KB 测速轮，目标与流水线一致
    （gstatic 204 / Google CDN），并用 `--dns-doh` 配上和客户端一样的 DoH，避免被污染解析坑。
-3. 产出 `_cn_filter/best-cn.yaml`（完整配置，Verge 里「导入本地配置」即可用）
-   + `nodes-cn.yaml`（纯节点清单）+ 一份运行报告。
+3. 产出 `_cn_filter/best-cn.yaml`（完整配置）+ `nodes-cn.yaml`（纯节点清单）；
+   加 `--publish` 就把它们发成 release `fast` 的 `best.yaml` / `nodes.yaml`
+   （结构与 `best` 那条流水线的产物一致）。
 
 用法
 ----
     python tools/local_cn_filter.py                     # 默认：候选=release 的 best.yaml
     python tools/local_cn_filter.py --full               # 候选=完整池子（本机跑，约十几分钟）
     python tools/local_cn_filter.py --limit 300          # 只测前 300 个（冒烟）
-    python tools/local_cn_filter.py --publish            # 额外发布成 release 资产 best-cn.yaml
-                                                          # （需要环境变量 GITHUB_TOKEN）
+    python tools/local_cn_filter.py --publish            # 发布成 release `fast` 的两个资产
+                                                         # （需要环境变量 GITHUB_TOKEN）
 
-常用可调项：`--latency-timeout 8000`（国内链路慢，实测能用的节点握手也要 3~8 秒）、
+常用可调项：`--latency-timeout 8000`（这条链路慢，实测能用的节点握手也要 3~8 秒）、
 `--max-latency 10000`、`--min-speed-kbps 100`、`--core <mihomo路径>`。
 """
 
@@ -47,6 +48,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_DEFAULT = os.path.normpath(os.path.join(HERE, '..'))
 OUT_DIR = '_cn_filter'
 RELEASE = 'https://github.com/haolive/changfeng/releases/download/best'
+TAG = 'fast'                      # 发布用的 release tag（改这里要同步改文档里的地址）
+TITLE = 'fast（优选订阅）'          # release 标题
 MIRRORS = ('https://github.boki.moe/', 'https://seep.eu.org/')
 UA = 'clash.meta/v1.19.31'
 DOH = ('https://doh.pub/dns-query', 'https://dns.alidns.com/dns-query')
@@ -178,7 +181,10 @@ def main():
            '--speed-limit', str(a.speed_limit),
            '--max-nodes', str(a.max_nodes),
            '--concurrency', str(a.concurrency),
-           '--min-keep', '1']
+           '--min-keep', '1',
+           # 产物是公开的：头部只写配置文件名（别把本机绝对路径带出去），测速环境如实描述
+           '--source-label', os.path.basename(cfg),
+           '--test-location', '当前网络']
     for d in DOH:
         cmd += ['--dns-doh', d]
     # 测速兜底：Google CDN 会对部分机房 IP 返 403（那不是节点的问题），换 CF 和国内镜像再试
@@ -210,21 +216,24 @@ def main():
         if not token or not kept:
             log('没发布：需要 GITHUB_TOKEN 环境变量，且至少有一个可用节点')
             return 0
-        log('\n发布到 release tag best-cn …')
-        return publish(token, os.path.join(out_dir, 'best-cn.yaml'), kept)
+        log('\n发布到 release tag %s …' % TAG)
+        return publish(token, os.path.join(out_dir, 'best-cn.yaml'),
+                       os.path.join(out_dir, 'nodes-cn.yaml'), kept)
     return 0
 
 
-def publish(token, config_file, kept):
-    """把本机筛出来的结果发成 release 资产（完整配置，客户端可以直接当订阅导入）。
+def publish(token, config_file, nodes_file, kept):
+    """把筛选结果发成 release 的两个资产（和 `best` 那条流水线的结构保持一致）：
 
-    tag/资产名固定为 best-cn.yaml：它是**本机跑出来的快照**，不会自动更新，
-    每次在本机跑脚本（加 --publish）都会覆盖它。
+        best.yaml   完整配置（DNS / 策略组 / 分流规则 / 广告规则集都在），客户端直接当订阅导入
+        nodes.yaml  只有 proxies 的清单，自己组装配置时当 proxy-provider 用
+
+    tag/资产名固定（见 TAG）：这是一份**快照**，不会自动更新；每次跑脚本 + `--publish` 覆盖它。
     """
     api = 'https://api.github.com'
     repo = 'haolive/changfeng'
-    tag, asset, title = 'best-cn', 'best-cn.yaml', '本机实测（国内可用）订阅'
-    headers = {'Authorization': 'Bearer ' + token, 'User-Agent': 'local-cn-filter',
+    base = 'https://github.com/%s/releases/download/%s' % (repo, TAG)
+    headers = {'Authorization': 'Bearer ' + token, 'User-Agent': 'local-filter',
                'Accept': 'application/vnd.github+json'}
 
     def call(method, path, body=None, raw=False):
@@ -241,32 +250,60 @@ def publish(token, config_file, kept):
         except urllib.error.HTTPError as e:
             return e.code, e.read().decode('utf-8', 'replace')
 
-    st, rel = call('GET', '/repos/%s/releases/tags/%s' % (repo, tag))
-    notes = '由本机（国内网络）实测筛出：%d 个节点。生成于 %s。' % (
-        kept, time.strftime('%Y-%m-%d %H:%M'))
+    notes = '\n'.join([
+        '# %s' % TITLE,
+        '',
+        '- 生成时间：%s' % time.strftime('%Y-%m-%d %H:%M'),
+        '- 节点数：**%d**' % kept,
+        '- 筛选方式：先取 `best`（全球可达性过滤后的订阅）当候选，再在本地网络下逐个测延迟 + 真下 512KB，'
+        '只保留两项都通过的节点',
+        '',
+        'Clash Verge 里直接当订阅用：',
+        '',
+        '```',
+        '%s/best.yaml' % base,
+        '```',
+        '',
+        '只想要节点清单（自己组装配置时当 proxy-provider 用）：',
+        '',
+        '```',
+        '%s/nodes.yaml' % base,
+        '```',
+        '',
+        '> 这是一份**快照**，不会自动更新（这一轮筛选依赖本地网络，跑不了定时任务）。'
+        '想刷新就重新跑一次脚本并加 `--publish`，会覆盖同一份资产。',
+    ])
+
+    st, rel = call('GET', '/repos/%s/releases/tags/%s' % (repo, TAG))
     if st == 404:
         st, rel = call('POST', '/repos/%s/releases' % repo,
-                       {'tag_name': tag, 'name': title, 'body': notes})
+                       {'tag_name': TAG, 'name': TITLE, 'body': notes})
         if st not in (200, 201):
             log('  创建 release 失败：%s' % rel)
             return 1
+    else:
+        call('PATCH', '/repos/%s/releases/%s' % (repo, rel.get('id')), {'body': notes})
     upload = rel.get('upload_url', '').split('{')[0]
     if not upload:
         log('  拿不到上传地址')
         return 1
-    with open(config_file, 'rb') as fh:
-        content = fh.read()
-    req = urllib.request.Request(upload + '?name=' + asset, data=content, method='POST',
-                                 headers={'Authorization': 'Bearer ' + token,
-                                          'User-Agent': 'local-cn-filter',
-                                          'Content-Type': 'text/yaml'})
-    try:
-        with urllib.request.urlopen(req, timeout=120) as r:
-            log('  发布成功：%s（%d 字节）' % (r.status, len(content)))
-    except Exception as e:  # noqa: BLE001
-        log('  上传失败：%r' % (e,))
-        return 1
-    return 0
+    ok = True
+    for path, asset in ((config_file, 'best.yaml'), (nodes_file, 'nodes.yaml')):
+        if not path or not os.path.exists(path):
+            continue
+        with open(path, 'rb') as fh:
+            content = fh.read()
+        req = urllib.request.Request(upload + '?name=' + asset, data=content, method='POST',
+                                     headers={'Authorization': 'Bearer ' + token,
+                                              'User-Agent': 'local-filter',
+                                              'Content-Type': 'text/yaml'})
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                log('  %s 发布成功：%s（%d 字节）' % (asset, r.status, len(content)))
+        except Exception as e:  # noqa: BLE001
+            log('  %s 上传失败：%r' % (asset, e))
+            ok = False
+    return 0 if ok else 1
 
 
 if __name__ == '__main__':

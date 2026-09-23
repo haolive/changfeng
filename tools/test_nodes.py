@@ -373,6 +373,10 @@ def main():
                     help='给测试用的内核配上 DoH DNS（可重复指定，如 --dns-doh https://doh.pub/dns-query）。'
                          '默认不启用 DNS（用系统解析器）：境外 runner 上没问题，但国内本机跑时系统 DNS 可能'
                          '给出被污染的解析结果，好节点会被冤枉，建议本机跑时配上和客户端一致的 DoH')
+    ap.add_argument('--source-label', help='产物头部"源模板"显示的名字（默认取 --config 的文件名，'
+                                           '不要写绝对路径 —— 产物会公开发布）')
+    ap.add_argument('--test-location', default='GitHub runner（境外机房）',
+                    help='产物头部"测速环境"的写法（本机跑的时候改成如实描述）')
     ap.add_argument('--ipv6-policy', choices=['keep', 'drop'], default='keep',
                     help='测试机没有 IPv6 时，IPv6 字面量节点怎么办：keep=原样保留（默认，不冤枉好节点）/ drop=删掉')
     a = ap.parse_args()
@@ -574,17 +578,18 @@ def main():
             sp.dump_go_safe({'proxies': final_nodes}, fh)
         print('写出 %s' % a.nodes_out)
     if a.out:
-        best_header = ('# 由 tools/test_nodes.py 自动生成，请勿手工编辑（改动会被下次定时任务覆盖）。\n'
+        best_header = ('# 由 tools/test_nodes.py 自动生成，请勿手工编辑（改动会被下次生成覆盖）。\n'
                        '# 源模板: {cfg}（proxy-providers 段已换成测速后的 inline proxies，其余原样保留）\n'
                        '# 生成时间: {ts}\n'
                        '# 节点数: {kept}（节点池 {pool} → 延迟合格 {lat} → 测速合格 {spd}）\n'
                        '# 筛选条件: 延迟 ≤{maxlat}ms（超时 {lto}ms）、下载 ≥{minsp} KB/s'
                        '（{bytes}KB 块，限时 {sto}s）、最多 {maxn} 个\n'
-                       '# ⚠ 测速是在 GitHub runner（境外机房）上做的：它只说明节点"活着且能跑流量"，\n'
-                       '#   不代表从国内连它也一定快 —— 但"死的/半死不活的"确实被清掉了。\n').format(
-            cfg=a.config, ts=ts, kept=len(final_nodes), pool=len(nodes), lat=len(ok_latency),
-            spd=len(speed), maxlat=a.max_latency, lto=a.latency_timeout, minsp=a.min_speed_kbps,
-            bytes=a.speed_bytes // 1024, sto=int(a.speed_timeout), maxn=a.max_nodes)
+                       '# ⚠ 测速环境: {loc}。它只说明节点"活着且能跑流量"；\n'
+                       '#   从你自己的网络连它是否同样快，取决于你自己的链路（客户端的健康检查会再筛一遍）。\n').format(
+            cfg=a.source_label or os.path.basename(a.config), ts=ts, kept=len(final_nodes),
+            pool=len(nodes), lat=len(ok_latency), spd=len(speed), maxlat=a.max_latency,
+            lto=a.latency_timeout, minsp=a.min_speed_kbps, bytes=a.speed_bytes // 1024,
+            sto=int(a.speed_timeout), maxn=a.max_nodes, loc=a.test_location)
         text = build_output_config(a.config, final_nodes, best_header)
         with open(a.out, 'w', encoding='utf-8', newline='\n') as fh:
             fh.write(text)
@@ -649,7 +654,8 @@ def main():
             json.dump(stats, fh, ensure_ascii=False, indent=2)
             fh.write('\n')
     if a.notes:
-        base = 'https://github.boki.moe/https://github.com/haolive/changfeng/releases/download/best'
+        # 用纯 GitHub 地址：说明是公开可见的，镜像前缀让用户自己在客户端加（换镜像不用改仓库）
+        base = 'https://github.com/haolive/changfeng/releases/download/best'
         with open(a.notes, 'w', encoding='utf-8', newline='\n') as fh:
             fh.write('# best（测速过滤后的订阅）\n\n')
             fh.write('- 生成时间：%s（用时 %.0fs）\n' % (ts, time.time() - t_start))
