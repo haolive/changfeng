@@ -12,6 +12,8 @@
 #
 # 特性：
 #   * 多个订阅通过 proxy-providers 合并，节点名前缀 S1~Sn 区分来源
+#   * 各段的设计说明、实测数据、维护记录见同目录「多订阅合并配置-说明.md」——那里能随便写长文，
+#     不受编辑器影响（序列条目上方的注释会被编辑器的增删/移动改乱，所以都搬过去了）
 #   * provider 层 exclude-filter 只留"状态型"词（剩余/流量/到期/过期/重置/traffic/expire/expired），
 #     用来剔除「剩余流量：100GB」「到期时间」这类信息行。
 #     ⚠ 别把"品牌推广型"词（tg频道 / t.me / http / 官网 / 订阅 / 机场 / 邀请 / 返利…）写进排除表：
@@ -159,8 +161,10 @@ proxy-providers:
     #   从未落地就是这个原因）。
     #   现在指向自己仓库的清洗产物：GitHub Actions 每小时拉上游 →
     #   tools/sanitize_provider.py 按字段清洗 + 内核端到端自检 → 发布为 release 资产。
-    #   直连实测可达（HTTP 206，~2.8s 拿到首块）；若哪天变慢/被墙，可添加镜像前缀
-    url: https://seep.eu.org/https://github.com/haolive/changfeng/releases/download/s8/s8.yaml
+    #   ⚠ 拉取要套 GitHub 镜像前缀：本机直连 github.com 实测 21~35s 后失败（2026-09-23），
+    #     走 github.boki.moe 前缀 5.7~6.8s 下完 1.4MB，seep.eu.org 前缀 9~12s（都在超时内）。
+    #     选 boki 是为了和本文件其它源保持一致。
+    url: https://github.boki.moe/https://github.com/haolive/changfeng/releases/download/s8/s8.yaml
     interval: 3600
     proxy: DIRECT
     health-check:
@@ -299,7 +303,6 @@ dns:
 # 应急手段（默认关闭，见下方注释示例）：某源整批死掉时给对应组临时启用 exclude-filter，
 # 节点名前缀 `Sx |` 是我们自己用 additional-prefix 加的，不管上游怎么改命名都匹配得到。
 proxy-groups:
-  # ==== 基础策略组 ====
   - name: 节点选择
     type: select
     proxies:
@@ -345,7 +348,6 @@ proxy-groups:
     lazy: true
     icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/balance.svg"
 
-  # ==== 分流策略组 ====
   - name: 直连
     type: select
     proxies:
@@ -368,24 +370,20 @@ proxy-groups:
     icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/fish.svg"
 
 # ---------------- 分流规则（从上到下匹配，规则后可自定义增删） ----------------
+# ⚠ 广告拦截类规则必须排在 GEOIP,CN / GEOSITE,cn 直连之前，否则国内广告域名会先被直连吃掉。
+#    各段分类说明见「多订阅合并配置-说明.md」§4。
 rules:
-  # 广告与隐私拦截（必须排在 GEOIP,CN / GEOSITE,cn 直连之前，否则国内广告域名会先被直连吃掉）
   - "RULE-SET,Hyper误杀例外,PASS"
   - "GEOSITE,category-ads-all,广告过滤"
   - "RULE-SET,秋风AWAvenue广告规则,广告过滤"
-  # 镜像直连（订阅、规则集、geo 数据库都从这里拉，避免绕道节点被拖死）
-  # jsdelivr 实测直连 97ms、下载 1.3s，绕节点纯属浪费（geox-url 也依赖它）
   - "DOMAIN-SUFFIX,boki.moe,直连"
   - "DOMAIN-SUFFIX,jsdelivr.net,直连"
-  # 局域网直连
   - "GEOIP,LAN,直连,no-resolve"
-  # 国内流量直连
   - "GEOSITE,cn,直连"
   - "GEOIP,CN,直连,no-resolve"
   - "GEOSITE,microsoft@cn,直连"
   - "GEOSITE,apple-cn,直连"
   - "GEOSITE,category-games@cn,直连"
-  # 国外服务分流
   - "GEOSITE,telegram,节点选择"
   - "GEOSITE,openai,节点选择"
   - "GEOSITE,google,节点选择"
@@ -396,7 +394,5 @@ rules:
   - "GEOSITE,steam,节点选择"
   - "GEOSITE,epicgames,节点选择"
   - "GEOSITE,category-games,节点选择"
-  # 国外网站兜底
   - "GEOSITE,geolocation-!cn,节点选择"
-  # 最后兜底
   - "MATCH,漏网之鱼"
