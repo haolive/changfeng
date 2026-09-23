@@ -36,6 +36,7 @@ mihomo 解析 proxy-provider 时，遇到**第一个**字段非法的节点就�
 
 import argparse
 import base64
+import hashlib
 import io
 import json
 import os
@@ -222,14 +223,24 @@ def sanitize(text, src_label):
     buf.write(HEADER.format(src=src_label, ts=time.strftime('%Y-%m-%d %H:%M:%S'),
                             kept=len(kept), total=total, dropped=total - len(kept)))
     yaml.serialize(out_root, buf)
+
+    # "坏节点签名"：只由"剔除了哪些原因 + 修复了哪些"决定，不看数量、不看时间。
+    # 供 tools/keepalive.py 判断"上游的坏节点集合是否变了"（重名不算 —— 那只是常规噪音，
+    # mihomo 自己会跳过，把它算进去会让签名每小时都变，白刷提交历史）。
+    sig_src = '\n'.join(sorted('%s|%s' % (k, x) for k, v in dropped.items() if k != '重名' for x in v)) \
+              + '\n--\n' + '\n'.join(sorted(repairs))
+    bad_signature = hashlib.sha1(sig_src.encode('utf-8')).hexdigest()[:16]
+
     return buf.getvalue(), {
         'source': src_label,
         'total': total,
         'kept': len(kept),
         'dropped_count': total - len(kept),
         'dropped': {k: v[:10] for k, v in dropped.items()},
+        'dropped_reasons': {k: len(v) for k, v in dropped.items()},
         'quoted_scalars': repairs[:40],
         'quoted_count': len(repairs),
+        'bad_signature': bad_signature,
     }
 
 
