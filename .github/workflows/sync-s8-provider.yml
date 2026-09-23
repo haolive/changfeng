@@ -1,0 +1,70 @@
+name: sync-s8-provider
+
+# 上游 Barabama/FreeNodes 的 feat/ai-crawler-v2 分支每小时重新生成 merged.yaml，
+# 里面时不时夹带字段非法的节点（REALITY public-key / short-id 等）。
+# 而 mihomo 解析 proxy-provider 时遇到第一个非法节点就整体中止 —— 不是跳过那一个，
+# 而是整个源 0 个节点生效（缓存文件也不会落地）。所以这里按**字段**清洗，
+# 而不是按节点名排除（按名字排除会随上游重编号失效，且失效时是静默的）。
+#
+# 产物：release 资产 https://github.com/haolive/changfeng/releases/download/s8/s8.yaml
+#       该 tag/资产名一旦确定，请不要再改，配置文件里的 provider url 指向它。
+
+on:
+  schedule:
+    - cron: '23 * * * *'        # 每小时第 23 分钟，避开整点
+  workflow_dispatch:            # 也可以手动触发
+
+permissions:
+  contents: write               # 创建 / 更新 release 资产需要
+
+concurrency:
+  group: sync-s8-provider
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: pip install --quiet pyyaml
+
+      - name: 下载 mihomo（端到端自检用）
+        run: |
+          set -euo pipefail
+          url=$(curl -sSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest \
+                | jq -r '.assets[].browser_download_url' \
+                | grep -E 'linux-amd64-v[0-9]' | head -n1)
+          echo "downloading $url"
+          curl -sSL -o mihomo.gz "$url"
+          gunzip -f mihomo.gz
+          chmod +x mihomo
+          ./mihomo -v
+
+      - name: 清洗上游 + 内核自检
+        run: |
+          set -euo pipefail
+          python tools/sanitize_provider.py \
+            --url https://raw.githubusercontent.com/Barabama/FreeNodes/refs/heads/feat/ai-crawler-v2/nodes/merged.yaml \
+            --out dist/s8.yaml \
+            --stats dist/stats.json \
+            --core-check ./mihomo \
+            --min-nodes 500
+          echo '--- stats ---'
+          cat dist/stats.json
+
+      - name: 发布到 release（固定 tag s8）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release view s8 >/dev/null 2>&1 || gh release create s8 \
+            --title "s8 provider（自动生成）" \
+            --notes "上游 Barabama/FreeNodes feat/ai-crawler-v2 的 merged.yaml，经 tools/sanitize_provider.py 按字段清洗后的干净版本。每小时由 .github/workflows/sync-s8-provider.yml 更新。"
+          gh release upload s8 dist/s8.yaml --clobber
+          echo "已更新 https://github.com/${{ github.repository }}/releases/download/s8/s8.yaml"
