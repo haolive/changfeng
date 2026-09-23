@@ -1,14 +1,20 @@
 # ============================================================
 # 多订阅合并配置（Clash Verge Rev / Mihomo）
 # ------------------------------------------------------------
-# 用法：
-#   1. Clash Verge Rev -> 订阅 -> 打开配置目录，把本文件放入 profiles 目录
-#       或直接「新建配置 -> 本地配置 -> 选择本文件导入」
-#   2. 右键该配置卡片 -> 启用
-#   3. 首次使用请打开「节点选择/自动选择」分组，等待健康检查完成后选择可用节点
-#   4. 确认「本次配置是否已开始加载」：日志里出现下面这一行就说明加载了（中文标记，方便一眼认出）
-#        Start initial provider 【配置已加载】AWAvenue广告规则
-#      —— 这行是 rule-provider 初始化时内核打印的，名字里的【配置已加载】前缀纯为提示用
+# 这份文件现在的角色：**订阅源清单 + 配置模板**（不再作为客户端订阅使用）
+#   1. 源清单：GitHub Actions 里的 refresh-nodes 流水线每小时读本文件的 proxy-providers，
+#      把各源合并 → 按字段清洗 → 逐个测速 → 只把活节点发布成 release（见 README-节点测速过滤.md）。
+#      加/删源、换 url、改前缀都只改本文件，流水线一行都不用动。
+#   2. 配置模板：下面 dns / proxy-groups / rules / rule-providers 这几段会被流水线原样
+#      复制进产物的 best.yaml（只把 proxy-providers 换成测速后的 inline proxies），
+#      所以改这里的规则/分组，等于改客户端的最终配置。
+#   —— 客户端只需要订阅 release 产物，不必再订阅本文件；本文件里的源多数是原始上游，
+#      有些（如 s8）**含字段非法节点，客户端直接拉会让整个源静默失效**，别直接订阅它。
+#
+# 历史上曾作为本地配置导入使用，那时的用法是：
+#   Clash Verge Rev -> 订阅 -> 打开配置目录放入 profiles / 「新建配置 -> 本地配置」导入，
+#   然后确认日志里出现 `Start initial provider 【配置已加载】AWAvenue广告规则` 表示已加载。
+#   （名字里的【配置已加载】前缀是故意留的中文标记，见下面 rule-providers 段的说明。）
 #
 # 特性：
 #   * 多个订阅通过 proxy-providers 合并，节点名前缀 S1~Sn 区分来源
@@ -150,18 +156,18 @@ proxy-providers:
   s8-ai-crawler-v2:
     type: http
     path: ./providers/s8_aicrawler.yaml
-    # ⚠ 不再直连上游 merged.yaml：上游每小时重生成，时不时夹带字段非法的节点
-    #   （2026-09-23 实测：第 2896 个的 reality public-key 写成 enabled、
-    #    第 3148 个的 short-id 是裸标量被 YAML 当成科学计数法），
-    #   而 mihomo 解析 provider 时遇到第一个非法节点就**整体中止** ——
-    #   不是少一个节点，是整个源 0 个节点生效（providers/s8_aicrawler.yaml
-    #   从未落地就是这个原因）。
-    #   现在指向自己仓库的清洗产物：GitHub Actions 每小时拉上游 →
-    #   tools/sanitize_provider.py 按字段清洗 + 内核端到端自检 → 发布为 release 资产。
-    #   ⚠ 拉取要套 GitHub 镜像前缀：本机直连 github.com 实测 21~35s 后失败（2026-09-23），
-    #     走 github.boki.moe 前缀 5.7~6.8s 下完 1.4MB，seep.eu.org 前缀 9~12s（都在超时内）。
-    #     选 boki 是为了和本文件其它源保持一致。
-    url: https://github.boki.moe/https://github.com/haolive/changfeng/releases/download/s8/s8.yaml
+    # 直连上游 merged.yaml。它每小时重生成，时不时夹带**字段非法**的节点
+    # （2026-09-23 实测：第 2896 个的 reality public-key 写成 enabled、
+    #  第 3148 个的 short-id 是裸标量被 YAML 当成科学计数法）。
+    # ⚠ 这类源**不能直接给客户端用**：mihomo 解析 provider 时遇到第一个非法节点就整体中止，
+    #   不是少一个节点，而是整个源 0 个节点生效（providers/s8_aicrawler.yaml 从未落地就是这个原因）。
+    #   所以清洗这步交给流水线：tools/fetch_node_pool.py 对每个源都会调
+    #   tools/sanitize_provider.py 按字段清洗，之后 tools/test_nodes.py 的内核预检还会再兜一道。
+    #   —— 也就是说本文件是「订阅源清单」，不承担"清洗产物"的角色，不需要额外的 release 中转。
+    # ⚠ 拉取要套 GitHub 镜像前缀：本机直连 github.com 实测 21~35s 后失败（2026-09-23），
+    #   走 github.boki.moe 前缀 5.7~6.8s 下完 1.4MB，seep.eu.org 前缀 9~12s（都在超时内）。
+    #   选 boki 是为了和本文件其它源保持一致。
+    url: https://github.boki.moe/https://raw.githubusercontent.com/Barabama/FreeNodes/refs/heads/feat/ai-crawler-v2/nodes/merged.yaml
     interval: 3600
     proxy: DIRECT
     health-check:

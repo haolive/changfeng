@@ -7,7 +7,7 @@
 1) **保活**：GitHub 对公开仓库的定时任务有个坑 —— 连续 60 天没有任何提交活动，
    `schedule` 会被自动停用。而本 workflow 只更新 release 资产、不产生 commit，
    正好属于"会被停用"的状态，所以需要偶尔提交一次。
-2) **审计**：上游哪天开始夹带非法节点、哪天又干净了，看这个文件的变化就知道，
+2) **审计**：哪个源哪天挂了/恢复了、上游哪天开始夹带非法节点，看这个文件的变化就知道，
    不用去翻 Actions 日志。
 
 两道门槛都满足才更新，所以正常情况下一周最多提交一两次，不会刷满提交历史。
@@ -35,7 +35,7 @@ def read_json(path):
 
 
 def main():
-    ap = argparse.ArgumentParser(description='按需更新 s8 清洗统计（保活 + 审计）')
+    ap = argparse.ArgumentParser(description='按需更新节点测速统计（保活 + 审计）')
     ap.add_argument('--stats', required=True, help='sanitize_provider.py --stats 产出的 json')
     ap.add_argument('--store', required=True, help='要提交进仓库的统计文件路径')
     ap.add_argument('--max-age-days', type=float, default=7, help='超过这么多天没提交就强制更新一次（保活）')

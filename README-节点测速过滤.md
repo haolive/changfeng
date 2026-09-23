@@ -13,12 +13,20 @@
 
 | 本地文件 | 仓库路径 | 作用 |
 |---|---|---|
-| `.github/workflows/refresh-nodes.yml` | 同左 | 定时任务：拉源 → 合并 → 测速 → 发布 release（+ 保活） |
-| `tools/fetch_node_pool.py` | 同左 | 读配置里的 proxy-providers：逐源拉取、按字段清洗、加前缀、过 exclude-filter、跨源去重 → 节点池 |
+| `.github/workflows/refresh-nodes.yml` | 同左 | 定时任务：拉源 → 合并清洗 → 测速 → 发布 release（+ 保活） |
+| `tools/fetch_node_pool.py` | 同左 | 读配置里的 proxy-providers：逐源拉取、按字段清洗、加前缀、跨源去重 → 节点池 |
 | `tools/test_nodes.py` | 同左 | 起临时内核做两轮测速（延迟 / 下载），产出 `best.yaml` 和 `nodes.yaml` |
+| `tools/sanitize_provider.py` | 同左 | 按字段清洗单个源（REALITY 字段、YAML 类型陷阱、client-fingerprint） |
+| `tools/local_cn_filter.py` | 同左 | 在自己网络下复筛节点，发布成 release `fast` |
+| `tools/keepalive.py` | 同左 | 按需提交统计文件（防止公开仓库 60 天无提交被停用定时任务） |
 
-复用了已有的两个脚本，没有另抄一份逻辑：`tools/sanitize_provider.py`（按字段清洗）、
-`tools/keepalive.py`（保活 + 审计）。
+**为什么每个源都要先"按字段清洗"**：上游免费池（尤其 s8 那条 `Barabama/FreeNodes`
+的 `merged.yaml`，每小时机器重生成）时不时夹带字段非法的节点 —— 2026-09-23 实测到
+`reality-opts.public-key: enabled`、`short-id: 062898e8`（裸标量被 YAML 当科学计数法）。
+而 mihomo 解析 provider 时遇到**第一个**非法节点就整体中止：不是跳过那一个，
+是整个源 0 个节点生效（缓存文件也不会落地），日志里只有一行 pull error，界面上看不出来。
+所以清洗按**字段**判断而不是按节点名排除（按名字会随上游重编号失效，且失效时是静默的）。
+详见 `tools/sanitize_provider.py` 的模块 docstring（六条规则）。
 
 ## 产物怎么用
 
@@ -138,15 +146,17 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
 
 ```powershell
 # 候选 = release 里那份 best.yaml（流水线筛过"全球活着"的），用本机网络实测一遍
-& "D:\ProgramFiles\install\Python311\python.exe" tools\local_cn_filter.py `
-    --repo "E:\Users\Documents\Python\changfeng-repo"
+python tools/local_cn_filter.py --repo "<仓库目录>"
 
 # 候选换成 10 个源合并的完整池子（慢很多，但可能捞出流水线没留的节点）
-& "...\python.exe" tools\local_cn_filter.py --full
+python tools/local_cn_filter.py --full
 
 # 只测前 300 个（冒烟）
-& "...\python.exe" tools\local_cn_filter.py --limit 300
+python tools/local_cn_filter.py --limit 300
 ```
+
+内核路径会自动找（`--core` > 环境变量 `MIHOMO`/`CLASH_CORE` > 常见安装位置 > PATH），
+找不到时用 `--core "<verge-mihomo.exe 的路径>"` 指定。
 
 产物在 `_cn_filter\best-cn.yaml`（完整配置，Verge 里「导入本地配置」）和 `nodes-cn.yaml`。
 加 `--publish` 可以把它们发成 release **`fast`** 的 `best.yaml` / `nodes.yaml`（需要 `GITHUB_TOKEN` 环境变量）：
@@ -177,7 +187,7 @@ https://github.com/haolive/changfeng/releases/download/fast/nodes.yaml
 > 免费池的服务器绝大多数**从国内连不上**。所以本机筛出来的清单很短是正常的（短但准）；
 > 免费池本来每小时都在换，清单短不影响用，下一次再跑就是了。
 
-## 保活（和 s8 那条一样的坑）
+## 保活（公开仓库定时任务会被自动停用的坑）
 
 GitHub 对**公开仓库**的定时任务：连续 60 天没有任何提交活动，`schedule` 会被自动停用。
 这条流水线同样只更新 release 资产、不产生 commit，所以最后一步会**按需**提交

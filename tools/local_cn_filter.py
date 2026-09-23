@@ -34,6 +34,7 @@
 """
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -81,16 +82,22 @@ def fetch(urls, out_path, timeout=90):
 
 
 def find_core(explicit):
+    """找 mihomo 内核。
+
+    顺序：`--core` > 环境变量 `MIHOMO`/`CLASH_CORE` > 常见安装位置 > PATH。
+    这里**不写死任何本机绝对路径**（仓库是公开的，路径会泄露使用者的目录结构）。
+    """
     if explicit:
         return explicit if os.path.exists(explicit) else None
-    cands = [
-        os.path.expandvars(r'%APPDATA%\io.github.clash-verge-rev.clash-verge-rev\verge-mihomo.exe'),
-        r'D:\ProgramFiles\Portable\科学\Clash.Verge\verge-mihomo.exe',
-        os.path.join(HERE, 'mihomo'),
-        os.path.join(HERE, '..', 'mihomo'),
-        shutil.which('mihomo') or '',
-        shutil.which('verge-mihomo') or '',
-    ]
+    cands = [os.environ.get('MIHOMO', ''), os.environ.get('CLASH_CORE', ''),
+             os.path.expandvars(r'%APPDATA%\io.github.clash-verge-rev.clash-verge-rev\verge-mihomo.exe'),
+             os.path.join(HERE, 'mihomo'), os.path.join(HERE, '..', 'mihomo'),
+             shutil.which('mihomo') or '', shutil.which('verge-mihomo') or '']
+    # Clash Verge 的常见安装位置（用通配符匹配，不依赖具体盘符/目录名）
+    for pat in (r'%LOCALAPPDATA%\Programs\clash-verge*\verge-mihomo.exe',
+                r'%ProgramFiles%\Clash Verge\verge-mihomo.exe',
+                r'%ProgramFiles%\Clash Verge Rev\verge-mihomo.exe'):
+        cands += glob.glob(os.path.expandvars(pat))
     for c in cands:
         if c and os.path.exists(c):
             return c
