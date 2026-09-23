@@ -1,398 +1,1949 @@
-# ============================================================
-# 多订阅合并配置（Clash Verge Rev / Mihomo）
-# ------------------------------------------------------------
-# 用法：
-#   1. Clash Verge Rev -> 订阅 -> 打开配置目录，把本文件放入 profiles 目录
-#       或直接「新建配置 -> 本地配置 -> 选择本文件导入」
-#   2. 右键该配置卡片 -> 启用
-#   3. 首次使用请打开「节点选择/自动选择」分组，等待健康检查完成后选择可用节点
-#   4. 确认「本次配置是否已开始加载」：日志里出现下面这一行就说明加载了（中文标记，方便一眼认出）
-#        Start initial provider 【配置已加载】AWAvenue广告规则
-#      —— 这行是 rule-provider 初始化时内核打印的，名字里的【配置已加载】前缀纯为提示用
-#
-# 特性：
-#   * 多个订阅通过 proxy-providers 合并，节点名前缀 S1~Sn 区分来源
-#   * 各段的设计说明、实测数据、维护记录见同目录「多订阅合并配置-说明.md」——那里能随便写长文，
-#     不受编辑器影响（序列条目上方的注释会被编辑器的增删/移动改乱，所以都搬过去了）
-#   * provider 层 exclude-filter 只留"状态型"词（剩余/流量/到期/过期/重置/traffic/expire/expired），
-#     用来剔除「剩余流量：100GB」「到期时间」这类信息行。
-#     ⚠ 别把"品牌推广型"词（tg频道 / t.me / http / 官网 / 订阅 / 机场 / 邀请 / 返利…）写进排除表：
-#       2026-09-23 实测，在 2534 个节点里它误杀了 66 个**可用**节点（真正剔掉的垃圾只有 2 个），
-#       其中某机场的节点名统一是「✈️关注TG频道@stymei NN」，一个 `tg频道` 就把整源 26/26 过滤干净，
-#       内核只报一行 pull error: file doesn't have any proxy —— 整个源静默清零，界面上看不出来。
-#   * GEOSITE/GEOIP 分流规则（使用内置 geo 数据库，无需额外下载规则集）
-#   * AWAvenue 广告规则集（rule-providers 远程拉取，自动更新，952 条国内 App 广告域名）
-#     —— 该 provider 名字带【配置已加载】前缀，用作启动日志的中文标记，详见「用法」第 4 条
-#   * 所有 provider 走 proxy: DIRECT 拉取 —— provider 拉取请求会进规则引擎、落到节点上，
-#     节点一死订阅和规则集就一起拉不动（日志实证），故让拉取与节点健康度解耦
-#   * DNS 走 DoH + fake-ip，国内域名直连解析
-#   * DNS 只用国内服务器（不吃 fallback）—— 落地的域名要能被解析，见 dns 段落里的说明
-# ============================================================
+# -*- coding: utf-8 -*-
+"""
+多订阅合并配置编辑器
+====================
+可视化编辑 Clash Verge Rev / Mihomo 的「多订阅合并配置.yaml」：
 
-# ---------------- 订阅节点来源 ----------------
-proxy-providers:
-  s1-NoMoreWalls:
-    type: http
-    path: ./providers/s1_list.meta.yml
-    url: "https://github.boki.moe/https://raw.githubusercontent.com/peasoft/NoMoreWalls/master/list.meta.yml"
-    interval: 3600            # 更新间隔（秒），免费池变动频繁，可按需调小（如 1800）
-    proxy: DIRECT             # 拉取走直连：boki 直连实测 1.5s，不该被死节点拖住
-    health-check:
-      enable: true
-      url: "https://www.gstatic.com/generate_204"
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: "S1 |"
-      skip-cert-verify: true   # 免费节点证书常不可信，跳过校验
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
-  s2-shaoyouvip:
-    type: http
-    path: ./providers/s2_shaoyouvip.yaml
-    url: "https://github.boki.moe/https://raw.githubusercontent.com/shaoyouvip/free/main/mihomo.yaml"
-    interval: 3600
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: "https://www.gstatic.com/generate_204"
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: "S2 |"
-      skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
-  s3-free-proxy-airport:
-    type: http
-    path: ./providers/s3_free_proxy_airport.yaml
-    url: "https://sunmiao4458.github.io/free-proxy-airport/clash.yaml"
-    interval: 3600
-    proxy: DIRECT             # 实测直连 199ms、200/18101 字节，与节点拉取的缓存字节数一致
-    health-check:
-      enable: true
-      url: "https://www.gstatic.com/generate_204"
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: "S3 |"
-      skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
-  s4-free-nodes:
-    type: http
-    path: ./providers/s4_free_nodes.yaml
-    url: "https://github.boki.moe/https://raw.githubusercontent.com/zhuhaiuk/free-nodes/main/clash_config.yaml"
-    interval: 3600
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: "https://www.gstatic.com/generate_204"
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: "S4 |"
-      skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
-  s5-sub445569:
-    type: http
-    path: ./providers/s5_sub445569.yaml
-    url: "https://sub.445569.xyz/"
-    interval: 1800            # 该源节点轮换快（实测一小时里 17->29 个），缩短到 30 分钟
-    proxy: DIRECT             # 实测直连 200/182127 字节（2026-09-23，带 clash UA）
-    # ⚠ 该源按 User-Agent 分流：带 clash UA 才返回 Clash 配置（182127 字节），
-    #   不带 UA 只返回 base64 订阅（8108 字节）。内核默认 UA 是 clash.meta/<版本>，
-    #   实测能拿到 Clash 配置，所以别给它加 user-agent 覆盖项。
-    # ⚠ 这个机场的节点名统一是「✈️关注TG频道@stymei NN」。2026-09-23 实测：排除表里只要有
-    #   `tg频道`，它的节点就会被 26/26 全部过滤掉，内核随即报 "file doesn't have any proxy"
-    #   —— 整个源静默清零。排除词收窄成"只留状态型词"之后才恢复正常（见文件顶部说明）。
-    health-check:
-      enable: true
-      url: "https://www.gstatic.com/generate_204"
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: "S5 |"
-      skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
-  s6-FreeSubsCheck:
-    type: http
-    path: ./providers/s6_FreeSubsCheck.yaml
-    url: "https://github.boki.moe/https://raw.githubusercontent.com/kooker/FreeSubsCheck/main/mihomo.yaml"
-    interval: 1800            # 该源是「可用性检测」仓库，只留当时通过的节点、轮换很快
-                              #（实测一小时里 1->7 个），所以比别的源拉得勤一些
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: "https://www.gstatic.com/generate_204"
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: "S6 |"
-      skip-cert-verify: true
-    exclude-filter: '(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
-  s7-proxypool:
-    type: http
-    path: ./providers/s7_proxypool.yaml
-    url: https://github.boki.moe/https://raw.githubusercontent.com/snakem982/proxypool/main/source/clash-meta-2.yaml
-    interval: 3600
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: S7 |
-      skip-cert-verify: true
-    exclude-filter: (?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)
-  s8-ai-crawler-v2:
-    type: http
-    path: ./providers/s8_aicrawler.yaml
-    # ⚠ 不再直连上游 merged.yaml：上游每小时重生成，时不时夹带字段非法的节点
-    #   （2026-09-23 实测：第 2896 个的 reality public-key 写成 enabled、
-    #    第 3148 个的 short-id 是裸标量被 YAML 当成科学计数法），
-    #   而 mihomo 解析 provider 时遇到第一个非法节点就**整体中止** ——
-    #   不是少一个节点，是整个源 0 个节点生效（providers/s8_aicrawler.yaml
-    #   从未落地就是这个原因）。
-    #   现在指向自己仓库的清洗产物：GitHub Actions 每小时拉上游 →
-    #   tools/sanitize_provider.py 按字段清洗 + 内核端到端自检 → 发布为 release 资产。
-    #   ⚠ 拉取要套 GitHub 镜像前缀：本机直连 github.com 实测 21~35s 后失败（2026-09-23），
-    #     走 github.boki.moe 前缀 5.7~6.8s 下完 1.4MB，seep.eu.org 前缀 9~12s（都在超时内）。
-    #     选 boki 是为了和本文件其它源保持一致。
-    url: https://github.boki.moe/https://github.com/haolive/changfeng/releases/download/s8/s8.yaml
-    interval: 3600
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: S8 |
-      skip-cert-verify: true
-    exclude-filter: (?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)
-  s9-free18:
-    type: http
-    path: ./providers/s9_free18.yaml
-    url: https://github.boki.moe/https://raw.githubusercontent.com/free18/v2ray/refs/heads/main/c.yaml
-    interval: 3600
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: S9 |
-      skip-cert-verify: true
-    exclude-filter: (?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)
-  s10-airport:
-    type: http
-    path: ./providers/s10_airport.yaml
-    url: https://github.boki.moe/https://raw.githubusercontent.com/dongchengjie/airport/refs/heads/main/subs/merged/tested_within.yaml
-    interval: 3600
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: S10 |
-      skip-cert-verify: true
-    exclude-filter: (?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)
+  * 全局设置：端口 / 模式 / geo 数据库 / profile 缓存等
+  * 订阅源（proxy-providers）：增、删、改名、编辑全部字段（健康检查 / override / 排除过滤）
+  * 规则集（rule-providers）：增、删、改名、编辑全部字段
+  * 代理组（proxy-groups）：增、删、改名、类型 / include-all / proxies / 测速参数
+  * DNS：开关、fake-ip 白名单、上游 DNS 列表
+  * 分流规则（rules）：增删改、上下移动排序
+  * 原始 YAML：直接查看 / 编辑整份配置文本
 
-# ---------------- 广告规则集 ----------------
-rule-providers:
-  # 名字里的【配置已加载】是给日志看的中文标记：内核启动/重载时会打印
-  #   Start initial provider 【配置已加载】AWAvenue广告规则
-  # 方便一眼确认"本次配置已开始加载"。改名时记得同步改 rules 里那条 RULE-SET。
-  秋风AWAvenue广告规则:
-    type: http
-    behavior: classical      # 文件是 payload 列表，每条自带 DOMAIN/DOMAIN-SUFFIX 前缀
-    format: yaml
-    url: "https://github.boki.moe/https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Clash-Classical.yaml"
-    path: ./ruleset/AWAvenue-Ads-Rule.yaml
-    interval: 86400
-    size-limit: 1048576      # 防异常响应写入超大文件
-    proxy: DIRECT            # 拉取走直连，理由同 proxy-providers：别被死节点拖住
-  Hyper误杀例外:
-    type: http
-    behavior: domain
-    format: mrs
-    url: https://github.boki.moe/https://github.com/Lynricsy/HyperADRules/releases/latest/download/hyper_adrules_allow.mrs
-    path: ./ruleset/hyper_adrules_allow.mrs
-    interval: 86400
-    size-limit: 2097152
-    proxy: DIRECT
-mixed-port: 7890
-allow-lan: false
-bind-address: '*'
-mode: rule
-log-level: info
-ipv6: true
-unified-delay: true
-tcp-concurrent: true
-keep-alive-interval: 15
-global-client-fingerprint: chrome
-find-process-mode: strict
-geo-auto-update: true
-geo-update-interval: 24
-geox-url:
-  geoip: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"
-  geosite: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
-  mmdb: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"
-  asn: "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/GeoLite2-ASN.mmdb"
-profile:
-  store-selected: true    # 记忆手动选择的节点
-  store-fake-ip: false
+说明：
+  * 已安装 ruamel.yaml 时按「往返模式」读写，保留原文件中的注释与格式；
+    未安装时回退 PyYAML（保存会丢失注释，保存前会弹出警告）。
+  * 表单未覆盖到的字段一律原样保留，不会被删除。
+  * 每次保存前自动生成同名 .bak 备份。
+"""
+import os
+import sys
+import shutil
+import traceback
+import datetime
+from io import StringIO
 
-# 如启用 TUN（透明代理，可选）：将下方注释的 tun 块取消注释并 enable: true
-# tun:
-#   enable: false
-#   stack: mixed
-#   auto-route: true
-#   auto-detect-interface: true
-#   dns-hijack:
-#     - "any:53"
+import tkinter as tk
+import tkinter.font as tkfont
+import tkinter.messagebox as mb
+import tkinter.filedialog as fd
 
-# ---------------- DNS ----------------
-dns:
-  enable: true
-  ipv6: true
-  enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.1/16
-  fake-ip-filter:
-    - '+.lan'
-    - '+.local'
-    - '+.msftconnecttest.com'
-    - '+.msftncsi.com'
-    - "localhost.ptlogin2.qq.com"
-    - "localhost.sec.qq.com"
-    - "localhost.work.weixin.qq.com"
-    - '+.weixin.qq.com'
-    - '+.wechat.com'
-  default-nameserver:
-    - 223.5.5.5
-    - 119.29.29.29
-  nameserver:
-    - "https://doh.pub/dns-query"
-    - "https://dns.alidns.com/dns-query"
-    - 180.184.1.1
-  # 只用国内 DNS，不吃 fallback（2026-09-20 实测：1.1.1.1 / 8.8.8.8 的 HTTPS DoH 在本网络
-  # 12 秒超时，不可达）。
-  # 原配置带 fallback + fallback-filter.geoip: true，其语义是「非 CN 域名的解析结果必须由
-  # fallback 提供」——于是所有需要真实 IP 的非 CN 域名（走 DIRECT 拉取的 github.boki.moe、
-  # cdn.jsdelivr.net）都会报 dns resolve failed: couldn't find ip，还要白等十几秒超时。
-  # 走代理的流量用 fake-ip，本来就不需要真实解析，所以去掉 fallback 不影响科学上网。
-  # 若将来重新引入 fallback，务必同时给镜像域名加 nameserver-policy，否则同样会踩回来。
+import customtkinter as ctk
 
-# ---------------- 代理组 ----------------
-# 说明：所有 `include-all: true` 的组会自动包含全部 6 个订阅的节点
-# 六个源全是免费池，节点随时会死也会换新 —— 靠「关闭 lazy（主动健康检查）+ 收紧
-# timeout/max-failed-times」自动淘汰坏节点，**不长期静态排除某个源**（免费池会换新，静态排除
-# 等于永久砍掉一个源，反而少一份可用的候选）。
-# 应急手段（默认关闭，见下方注释示例）：某源整批死掉时给对应组临时启用 exclude-filter，
-# 节点名前缀 `Sx |` 是我们自己用 additional-prefix 加的，不管上游怎么改命名都匹配得到。
-proxy-groups:
-  - name: 节点选择
-    type: select
-    proxies:
-      - 自动选择
-      - 手动选择
-      - 负载均衡
-    default-selected: 自动选择
-    url: "https://www.gstatic.com/generate_204"
-    interval: 300
-    timeout: 3000
-    lazy: true
-    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/adjust.svg"
-  - name: 自动选择
-    type: url-test
-    include-all: true
-    # exclude-filter: "^S4"   # 应急备用：某源整批死掉时临时启用（示例：排除 S4）
-    tolerance: 50
-    url: "https://www.gstatic.com/generate_204"
-    interval: 300
-    timeout: 2000            # 调小：死节点探测更快失败，选举切换更快
-    max-failed-times: 2      # 调小：少给一次机会，坏节点下台更快
-    # lazy 已移除（默认 false）：主动按 interval 做健康检查。
-    # 原来 lazy: true 时日志会打「failed multiple times, activate health check」——
-    # 死节点被长期挂住，所有流量都走它，直到失败累积才想起检查。
-    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/speed.svg"
-  - name: 手动选择
-    type: select
-    include-all: true
-    url: "https://www.gstatic.com/generate_204"
-    interval: 300
-    timeout: 3000
-    lazy: true
-    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/guard.svg"
-  - name: 负载均衡
-    type: load-balance
-    strategy: sticky-sessions
-    include-all: true
-    # exclude-filter: "^S4"   # 应急备用：同「自动选择」，需要时一并打开
-    url: "https://www.gstatic.com/generate_204"
-    interval: 300
-    timeout: 3000            # 保持宽松：负载均衡是"分摊"不是"选最快"，过度超时淘汰会白丢节点
-    max-failed-times: 3
-    lazy: true
-    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/balance.svg"
+try:
+    from ruamel.yaml import YAML as _RYAML
+    YAML_ENGINE = "ruamel"          # 往返模式，保留注释
+except Exception:
+    import yaml as _pyyaml
+    YAML_ENGINE = "pyyaml"          # 兜底，保存会丢注释
 
-  - name: 直连
-    type: select
-    proxies:
-      - DIRECT
-      - 节点选择
-    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/link.svg"
-  - name: 广告过滤
-    type: select
-    proxies:
-      - REJECT
-      - DIRECT
-    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/bug.svg"
-  - name: 漏网之鱼
-    type: select
-    proxies:
-      - 节点选择
-      - 自动选择
-      - 负载均衡
-      - 直连
-    icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/fish.svg"
+# 界面主题：中文选项 -> customtkinter 模式值（默认深色，可在右上角菜单临时切换，
+# 不做持久化，重启恢复深色）
+APPEARANCE_LABELS = {"跟随系统": "system", "深色": "dark", "浅色": "light"}
+DEFAULT_APPEARANCE = "dark"
 
-# ---------------- 分流规则（从上到下匹配，规则后可自定义增删） ----------------
-# ⚠ 广告拦截类规则必须排在 GEOIP,CN / GEOSITE,cn 直连之前，否则国内广告域名会先被直连吃掉。
-#    各段分类说明见「多订阅合并配置-说明.md」§4。
-rules:
-  - "RULE-SET,Hyper误杀例外,PASS"
-  - "GEOSITE,category-ads-all,广告过滤"
-  - "RULE-SET,秋风AWAvenue广告规则,广告过滤"
-  - "DOMAIN-SUFFIX,boki.moe,直连"
-  - "DOMAIN-SUFFIX,jsdelivr.net,直连"
-  - "GEOIP,LAN,直连,no-resolve"
-  - "GEOSITE,cn,直连"
-  - "GEOIP,CN,直连,no-resolve"
-  - "GEOSITE,microsoft@cn,直连"
-  - "GEOSITE,apple-cn,直连"
-  - "GEOSITE,category-games@cn,直连"
-  - "GEOSITE,telegram,节点选择"
-  - "GEOSITE,openai,节点选择"
-  - "GEOSITE,google,节点选择"
-  - "GEOSITE,netflix,节点选择"
-  - "GEOSITE,youtube,节点选择"
-  - "GEOSITE,disney,节点选择"
-  - "GEOSITE,tiktok,节点选择"
-  - "GEOSITE,steam,节点选择"
-  - "GEOSITE,epicgames,节点选择"
-  - "GEOSITE,category-games,节点选择"
-  - "GEOSITE,geolocation-!cn,节点选择"
-  - "MATCH,漏网之鱼"
+# 顶部路径标签的最大像素宽度：超出则截断，避免长路径把右侧按钮挤出窗口
+PATH_LABEL_MAX_PX = 260
+
+HEALTH_CHECK_URL = "https://www.gstatic.com/generate_204"
+
+# 默认排除词：只留"状态型"关键词。
+# 2026-09-23 实测（10 个源、2534 个缓存节点）：把"品牌推广型"词也写进去时共剔掉 68 个节点，
+# 其中 66 个是**可用的真节点**（某机场节点名统一是「✈️关注TG频道@stymei NN」，一个 `tg频道`
+# 就把 63 个全剔了；另有 3 个是名字带 t.me/频道后缀的真节点），真正剔掉的垃圾只有 2 个。
+# 最坏情况是过滤后一个不剩 —— 内核只报一行 `pull error: file doesn't have any proxy`，
+# 整个源静默清零（不会红，只在日志里）。状态型词几乎不会出现在节点名里，专治
+# 「剩余流量：100GB」「到期时间：…」这类信息行。
+DEFAULT_EXCLUDE_FILTER = r'(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)'
+
+# 上面说的"品牌推广型"关键词：只用来提醒，不阻止保存（见 risky_exclude_words / provider_post_apply）
+RISKY_EXCLUDE_WORDS = ("tg频道", "t.me", "http", "官网", "网址", "订阅", "机场", "邮箱", "客服",
+                       "工单", "通知", "倒卖", "邀请", "返利", "优惠", "福利", "公益", "注册",
+                       "登录", "客户端", "永久", "公告", "导航", "收藏", "教程", "版本")
+
+
+def risky_exclude_words(value):
+    """返回 exclude-filter 里命中的「品牌推广型」关键词（写进通用排除表会误杀真节点）"""
+    if not value:
+        return []
+    low = str(value).replace("\\", "").lower()      # 正则里的 t\.me 先去反斜杠再比
+    return [w for w in RISKY_EXCLUDE_WORDS if w.lower() in low]
+
+
+class CommitError(Exception):
+    """表单校验失败时抛出，携带中文提示"""
+
+
+# ----------------------------------------------------------------------
+# YAML 读写
+# ----------------------------------------------------------------------
+def _new_ruamel():
+    """构造往返用 YAML 实例：排版设置与配置文件原有风格一致。
+
+    实测（本目录「多订阅合并配置.yaml」）：默认 emitter 会把整份文件的块序列
+    重排成「无偏移」风格、并把超长 URL 折成多行；用下面这组设置时
+    「纯加载→导出」与原文件逐字节完全相同。
+    """
+    y = _RYAML()
+    y.preserve_quotes = True                    # 保留原文件的引号风格
+    y.indent(mapping=2, sequence=4, offset=2)   # 序列项缩进 4、偏移 2（对齐原文件）
+    y.width = 4096                              # 关闭自动折行：长 URL 保持单行
+    return y
+
+
+def load_yaml_text(text):
+    if YAML_ENGINE == "ruamel":
+        return _new_ruamel().load(text)
+    return _pyyaml.safe_load(text)
+
+
+def dump_yaml_text(data):
+    buf = StringIO()
+    if YAML_ENGINE == "ruamel":
+        _new_ruamel().dump(data, buf)
+    else:
+        buf.write(_pyyaml.dump(data, allow_unicode=True, sort_keys=False,
+                               default_flow_style=False, width=100000))
+    return buf.getvalue()
+
+
+def get_nested(d, path):
+    """按 a/b/c 路径取值，返回 (是否存在, 值)"""
+    cur = d
+    for part in path.split("/"):
+        if not isinstance(cur, dict) or part not in cur:
+            return False, None
+        cur = cur[part]
+    return True, cur
+
+
+def set_nested(d, path, value):
+    """按 a/b/c 路径写值，中间层字典不存在则创建"""
+    parts = path.split("/")
+    cur = d
+    for p in parts[:-1]:
+        if not isinstance(cur.get(p), dict):
+            cur[p] = {}
+        cur = cur[p]
+    cur[parts[-1]] = value
+
+
+def del_nested(d, path):
+    parts = path.split("/")
+    cur = d
+    for p in parts[:-1]:
+        if not isinstance(cur.get(p), dict):
+            return
+        cur = cur[p]
+    cur.pop(parts[-1], None)
+
+
+def rename_map_key(mapping, old, new):
+    """重命名映射的键并保持在原位置（兼容 ruamel CommentedMap 与普通 dict）"""
+    if hasattr(mapping, "insert"):          # ruamel CommentedMap
+        idx = list(mapping.keys()).index(old)
+        val = mapping.pop(old)
+        mapping.insert(idx, new, val)
+    else:                                    # 普通 dict：按原顺序重建
+        items = [((new if k == old else k), v) for k, v in mapping.items()]
+        mapping.clear()
+        mapping.update(dict(items))
+
+
+def insert_map_item(mapping, idx, key, value):
+    """在映射的第 idx 个位置插入新键值（保持既有顺序与注释）"""
+    if hasattr(mapping, "insert"):           # ruamel CommentedMap
+        mapping.insert(idx, key, value)
+        return
+    items = list(mapping.items())
+    items.insert(idx, (key, value))
+    mapping.clear()
+    mapping.update(dict(items))
+
+
+def move_map_item(mapping, i, j):
+    """交换映射中位置 i 与 j 的两个条目（用于上移/下移）"""
+    keys = list(mapping.keys())
+    ki, kj = keys[i], keys[j]
+    if hasattr(mapping, "insert"):
+        if abs(j - i) == 1:
+            # 相邻交换：弹出前面的再插回目标位置 j（下移 i<j 时 kj 位于 i，
+            # 插到 i+1=j；上移 i>j 时 kj 位于 i-1=j，插到 j）
+            vi = mapping.pop(ki)
+            mapping.insert(j, ki, vi)
+            return
+        items = [(k, mapping[k]) for k in keys]
+        items[i], items[j] = items[j], items[i]
+        mapping.clear()
+        for k, v in items:
+            mapping.insert(len(mapping), k, v)
+    else:
+        items = [(k, mapping[k]) for k in keys]
+        items[i], items[j] = items[j], items[i]
+        mapping.clear()
+        mapping.update(dict(items))
+
+
+def seq_swap_with_comments(seq, i, j):
+    """交换序列相邻两个元素，并让注释块跟着它们对应的条目走。
+
+    实测（ruamel 0.18）：条目之间的独立注释块记在「前一个条目」的下标
+    ca.items[k] 上，渲染时出现在条目 k 之后、条目 k+1 之前——即视觉上
+    属于条目 k+1。因此交换 i/i+1 时需把注释条目 (i-1, i) 一并对调，
+    注释才能继续标在原来对应的条目上，而不是死板地留在原下标。
+    """
+    if j < i:
+        i, j = j, i
+    seq[i], seq[j] = seq[j], seq[i]
+    if not hasattr(seq, "ca"):
+        return
+    items = seq.ca.items
+    a = i - 1
+    if a >= 0 and (a in items or i in items):
+        va = items.pop(a, None)
+        vb = items.pop(i, None)
+        if va is not None:
+            items[i] = va
+        if vb is not None:
+            items[a] = vb
+
+
+# ----------------------------------------------------------------------
+# 分流规则的结构化解析与组合
+#   规则形态：TYPE,参数,目标策略[,附加参数...]
+#   特例：MATCH,目标策略（无参数）；AND/OR/NOT/SUB-RULE 的参数是括号表达式，
+#        括号里的逗号不属于分隔符，需按括号深度切分
+# ----------------------------------------------------------------------
+RULE_TYPES = [
+    "DOMAIN", "DOMAIN-SUFFIX", "DOMAIN-KEYWORD", "DOMAIN-REGEX",
+    "GEOSITE", "GEOIP", "IP-CIDR", "IP-CIDR6", "IP-ASN", "IP-SUFFIX",
+    "SRC-GEOIP", "SRC-IP-ASN", "SRC-IP-CIDR", "SRC-PORT", "DST-PORT",
+    "IN-TYPE", "IN-PORT", "IN-USER", "IN-NAME", "NETWORK", "DSCP", "UID",
+    "PROCESS-NAME", "PROCESS-PATH", "PROCESS-NAME-REGEX", "PROCESS-PATH-REGEX",
+    "RULE-SET", "AND", "OR", "NOT", "SUB-RULE", "MATCH",
+]
+
+
+def split_top_level(text):
+    """按逗号切分，但括号 (…) 内的逗号不切分"""
+    parts, depth, cur = [], 0, []
+    for ch in text:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    parts.append("".join(cur))
+    return [p.strip() for p in parts]
+
+
+def parse_rule_text(text):
+    """解析为 (类型, 参数, 目标策略, [附加参数])；只有一段无法结构化时返回 None"""
+    parts = split_top_level(text)
+    if len(parts) == 1:
+        return None
+    if len(parts) == 2:
+        return parts[0].upper(), "", parts[1], []
+    return parts[0].upper(), parts[1], parts[2], parts[3:]
+
+
+def compose_rule_text(rtype, payload, target, extra):
+    """由结构化字段组合规则字符串"""
+    parts = [rtype]
+    if rtype.upper() != "MATCH" and payload:   # MATCH 无参数；参数为空时不产生空段
+        parts.append(payload)
+    parts.append(target)
+    for e in extra.split(","):
+        e = e.strip()
+        if e:
+            parts.append(e)
+    return ",".join(parts)
+
+
+def merge_comment_slots(slots_list):
+    """把多个 ca.items 槽位合并成一个（同槽的注释文本依次拼接）"""
+    merged = [None, None, None, None]
+    for slots in slots_list:
+        for i, tok in enumerate(list(slots)[:4]):
+            if tok is None:
+                continue
+            if merged[i] is None:
+                merged[i] = tok
+            else:
+                try:
+                    merged[i].value += tok.value
+                except Exception:
+                    pass                      # 拼不上就保留第一个，不丢结构
+    return merged
+
+
+def split_tail_comment_slots(seq):
+    """把「渲染在列表末尾之后」的注释块摘出来单独保管。
+
+    ruamel 按「条目下标」记录注释，语义是渲染在该条目之后；列表长度变化时
+    下标会错位——注释跑到列表中间，把末尾元素挤到注释块后面（实测）。
+    这里在首次编辑该列表时把末尾注释摘出来，之后每次更新都重新挂到新的末项，
+    保证注释始终渲染在整个列表之后。
+    """
+    if not hasattr(seq, "ca"):
+        return []
+    cached = getattr(seq, "_tail_comment_slots", None)
+    if cached is not None:
+        return cached
+    items = getattr(seq.ca, "items", None) or {}
+    last = len(seq) - 1
+    tail = []
+    for k in sorted(items.keys(), reverse=True):
+        if last >= 0 and k >= last and items[k]:
+            tail.append(items.pop(k))
+    tail.reverse()
+    try:
+        seq._tail_comment_slots = tail
+    except Exception:
+        pass
+    return tail
+
+
+# ----------------------------------------------------------------------
+# 字段规格（表单声明式定义）
+#   每项: (键路径, 标签, 类型, 附加参数, 是否可选)
+#   类型: sep=分隔标题 entry=单行 combo=下拉 int=整数 switch=开关 textlines=多行列表
+#   可选=True 时留空表示「删除该键」
+# ----------------------------------------------------------------------
+GLOBAL_SPEC = [
+    (None, "基础设置", "sep", None, False),
+    ("mixed-port", "混合端口 mixed-port", "int", None, False),
+    ("allow-lan", "允许局域网 allow-lan", "switch", None, False),
+    ("bind-address", "监听地址 bind-address", "entry", 380, True),
+    ("mode", "运行模式 mode", "combo", ["rule", "global", "direct"], False),
+    ("log-level", "日志等级 log-level", "combo", ["silent", "error", "warning", "info", "debug"], False),
+    ("ipv6", "IPv6 支持 ipv6", "switch", None, False),
+    ("unified-delay", "统一延迟 unified-delay", "switch", None, False),
+    ("tcp-concurrent", "TCP 并发 tcp-concurrent", "switch", None, False),
+    ("keep-alive-interval", "连接保活间隔 keep-alive-interval(秒)", "int", None, False),
+    ("global-client-fingerprint", "全局 TLS 指纹 global-client-fingerprint", "entry", 380, True),
+    ("find-process-mode", "进程匹配 find-process-mode", "combo", ["strict", "always", "off"], False),
+    (None, "Geo 数据库", "sep", None, False),
+    ("geo-auto-update", "自动更新 geo 数据库", "switch", None, False),
+    ("geo-update-interval", "geo 更新间隔(小时)", "int", None, False),
+    ("geox-url/geoip", "geoip 数据库地址(留空删除)", "entry", 560, True),
+    ("geox-url/geosite", "geosite 数据库地址(留空删除)", "entry", 560, True),
+    ("geox-url/mmdb", "mmdb 数据库地址(留空删除)", "entry", 560, True),
+    ("geox-url/asn", "asn 数据库地址(留空删除)", "entry", 560, True),
+    (None, "缓存 profile", "sep", None, False),
+    ("profile/store-selected", "记忆手动选择的节点 store-selected", "switch", None, False),
+    ("profile/store-fake-ip", "记忆 fake-ip store-fake-ip", "switch", None, False),
+]
+
+PROVIDER_SPEC = [
+    (None, "基本信息", "sep", None, False),
+    ("name", "名称", "entry", 380, False),
+    ("type", "类型 type", "combo", ["http", "file"], False),
+    ("url", "订阅地址 url", "entry", 560, False),
+    ("path", "本地缓存路径 path", "entry", 380, False),
+    ("interval", "更新间隔 interval(秒)", "int", None, False),
+    ("proxy", "拉取代理 proxy(留空删除)", "entry", 380, True),
+    (None, "健康检查 health-check", "sep", None, False),
+    ("health-check/enable", "启用健康检查", "switch", None, False),
+    ("health-check/url", "检查地址 url", "entry", 380, False),
+    ("health-check/interval", "检查间隔 interval(秒)", "int", None, False),
+    ("health-check/timeout", "超时 timeout(毫秒)", "int", None, False),
+    ("health-check/lazy", "懒检查 lazy", "switch", None, False),
+    (None, "覆写 override", "sep", None, False),
+    ("override/additional-prefix", "节点名前缀 additional-prefix(留空删除)", "entry", 380, True),
+    ("override/skip-cert-verify", "跳过证书校验 skip-cert-verify", "switch", None, False),
+    ("exclude-filter", "排除过滤 exclude-filter(留空删除)", "entry", 560, True),
+]
+
+RULE_PROVIDER_SPEC = [
+    (None, "基本信息", "sep", None, False),
+    ("name", "名称", "entry", 380, False),
+    ("type", "类型 type", "combo", ["http", "file"], False),
+    ("behavior", "规则行为 behavior", "combo", ["domain", "ipcidr", "classical"], False),
+    ("format", "文件格式 format", "combo", ["yaml", "text", "mrs"], False),
+    ("url", "规则集地址 url", "entry", 560, False),
+    ("path", "本地缓存路径 path", "entry", 380, False),
+    ("interval", "更新间隔 interval(秒)", "int", None, False),
+    ("size-limit", "大小上限 size-limit(字节,留空删除)", "int", None, True),
+    ("proxy", "拉取代理 proxy(留空删除)", "entry", 380, True),
+]
+
+GROUP_SPEC = [
+    (None, "基本信息", "sep", None, False),
+    ("name", "组名 name", "entry", 380, False),
+    ("type", "类型 type", "combo", ["select", "url-test", "fallback", "load-balance", "relay"], False),
+    ("include-all", "包含全部节点 include-all", "switch", None, False),
+    ("proxies", "节点列表 proxies(每行一个,开启 include-all 时忽略)", "textlines", 110, True),
+    ("strategy", "负载策略 strategy(仅 load-balance,留空删除)", "entry", 380, True),
+    ("tolerance", "切换容差 tolerance(ms,留空删除)", "int", None, True),
+    ("url", "测速地址 url(留空删除)", "entry", 380, True),
+    ("interval", "测速间隔 interval(秒,留空删除)", "int", None, True),
+    ("timeout", "测速超时 timeout(ms,留空删除)", "int", None, True),
+    ("max-failed-times", "最大失败次数 max-failed-times(留空删除)", "int", None, True),
+    ("lazy", "懒检查 lazy(关闭=主动测速)", "switch", None, False),
+    ("default-selected", "默认选中 default-selected(留空删除)", "entry", 380, True),
+    ("exclude-filter", "排除过滤 exclude-filter(应急用,留空删除)", "entry", 560, True),
+    ("icon", "图标 icon(留空删除)", "entry", 560, True),
+]
+
+DNS_SPEC = [
+    ("enable", "启用 DNS", "switch", None, False),
+    ("ipv6", "IPv6 解析 ipv6", "switch", None, False),
+    ("enhanced-mode", "解析模式 enhanced-mode", "combo", ["fake-ip", "redir-host"], False),
+    ("fake-ip-range", "fake-ip 网段(留空删除)", "entry", 380, True),
+    ("fake-ip-filter", "fake-ip 白名单(每行一个,留空删除)", "textlines", 130, True),
+    ("default-nameserver", "default-nameserver(每行一个,留空删除)", "textlines", 90, True),
+    ("nameserver", "nameserver 上游 DNS(每行一个,留空删除)", "textlines", 110, True),
+]
+
+
+# ----------------------------------------------------------------------
+# 新建条目的默认模板
+# ----------------------------------------------------------------------
+def make_default_provider(idx):
+    return {
+        "type": "http",
+        "path": f"./providers/s{idx}_new.yaml",
+        "url": "https://请替换成真实订阅地址/subscribe",
+        "interval": 3600,
+        "proxy": "DIRECT",
+        "health-check": {
+            "enable": True,
+            "url": HEALTH_CHECK_URL,
+            "interval": 300,
+            "timeout": 3000,
+            "lazy": True,
+        },
+        "override": {
+            "additional-prefix": f"S{idx} |",
+            "skip-cert-verify": True,
+        },
+        "exclude-filter": DEFAULT_EXCLUDE_FILTER,
+    }
+
+
+def make_default_rule_provider(idx):
+    return {
+        "type": "http",
+        "behavior": "domain",
+        "format": "yaml",
+        "url": "https://请替换成真实规则集地址/rules.yaml",
+        "path": f"./ruleset/new_ruleset_{idx}.yaml",
+        "interval": 86400,
+        "size-limit": 1048576,
+        "proxy": "DIRECT",
+    }
+
+
+def make_default_group(idx):
+    return {
+        "name": f"新分组{idx}",
+        "type": "select",
+        "proxies": ["DIRECT"],
+    }
+
+
+# ----------------------------------------------------------------------
+# 帮助页内容：(样式, 文本) 样式: h1/h2/text/code/warn/dim
+# ----------------------------------------------------------------------
+HELP_CONTENT = [
+    ("h1", "◆ 快速上手"),
+    ("text", "1. 启动时为空白状态，点右上角「打开」选择要编辑的 YAML 配置文件。"),
+    ("text", "2. 左侧列表选中条目 → 右侧表单修改 → 点右上「保存」(快捷键 Ctrl+S)。"
+             "右上角「保存时备份」开关可决定保存前是否把原文件另存为同名 .bak（默认关闭）。"),
+    ("text", "3. 「新建」在当前选中条目的下方插入（未选中时加到末尾）；「上移/下移」调整顺序。"),
+    ("text", "4. 标注「留空删除」的字段：清空后保存即从配置里删除该键；未标注的字段留空会报错提示。"),
+    ("text", "5. 表单没有覆盖到的字段一律原样保留；要编辑它们请用「原始YAML」页，改完点「把文本应用为当前配置」。"),
+    ("text", "6. 保存后到 Clash Verge Rev 里重新启用/重载这份配置才会生效。"),
+    ("text", "7. 右上角「主题」可切换 跟随系统 / 深色 / 浅色（默认深色，仅本次运行生效）。"),
+
+    ("h1", "◆ 订阅源 proxy-providers（免费机场池）"),
+    ("text", "每个订阅源是一个远程节点池，节点名会用 additional-prefix 加前缀区分来源（如 S1 |）。主要字段："),
+    ("code", 'url:      订阅地址（http 类型必填）\n'
+             'path:     本地缓存文件路径，如 ./providers/s1.yaml（各源不要重复）\n'
+             'interval: 自动更新间隔（秒）。免费池变动快，3600=1小时；轮换极快的源可 1800\n'
+             'proxy:    拉取订阅时走的通道，建议 DIRECT 直连 —— 订阅拉取也会经过规则引擎，\n'
+             '          若落到节点上，节点一死订阅就拉不下来\n'
+             'health-check:\n'
+             '  enable:  true 开启延迟检测\n'
+             '  url:     https://www.gstatic.com/generate_204 （标准 204 测速地址）\n'
+             '  interval/timeout: 检查间隔(秒)/超时(毫秒)\n'
+             '  lazy:    true=用到才检查；false=按 interval 主动检查（更及时踢掉死节点）\n'
+             'override:\n'
+             '  additional-prefix: 节点名前缀，如 "S1 |"\n'
+             '  skip-cert-verify:  true 跳过证书校验（免费节点证书常不可信）'),
+    ("text", "exclude-filter（排除过滤）：正则表达式，命中节点名的直接剔除，用来去掉"
+             "「剩余流量 / 到期时间」这类信息行。建议只写状态型关键词："),
+    ("code", r'exclude-filter: \'(?i)(剩余|流量|到期|过期|重置|traffic|expire|expired)\''),
+    ("dim", "  (?i)=不区分大小写；需要多条正则可以拿反引号 ` 分隔开"),
+    ("warn", "别把「品牌推广型」词（tg频道 / t.me / http / 官网 / 订阅 / 机场 / 邀请 / 返利…）写进通用排除表："
+             "真实节点名里也常带这些词（有的机场全部节点名都挂着 TG 频道名），会误杀好节点；"
+             "最坏情况是过滤后一个节点不剩，内核只报一行 pull error: file doesn't have any proxy，"
+             "整个源静默清零。保存时程序会提醒这类词。"),
+    ("warn", "注意：个别订阅源按 User-Agent 分流（如按 UA 返回 Clash 或 base64），这类源不要加 user-agent 覆写。"),
+
+    ("h1", "◆ 规则集 rule-providers"),
+    ("text", "远程广告/分流规则集合，供 rules 里的 RULE-SET 引用。主要字段："),
+    ("code", 'behavior: domain(纯域名) / ipcidr(IP段) / classical(每条自带类型前缀的完整规则)\n'
+             'format:   yaml / mrs(二进制,体积小加载快) / text\n'
+             'url:      规则集下载地址（建议带 GitHub 加速镜像前缀）\n'
+             'path:     本地缓存路径，如 ./ruleset/xxx.yaml\n'
+             'interval: 更新间隔(秒)，广告规则集 86400=每天一次足够\n'
+             'size-limit: 大小上限(字节)，防止异常响应写爆磁盘\n'
+             'proxy:    拉取通道，建议 DIRECT（理由同订阅源）'),
+    ("warn", "规则集的名字与 rules 里 RULE-SET 引用的名字必须完全一致，改名要两处同步。"),
+
+    ("h1", "◆ 代理组 proxy-groups"),
+    ("text", "策略组决定流量最终走哪些节点。五种类型："),
+    ("code", 'select:      手动选择（配合 default-selected 记默认项）\n'
+             'url-test:    自动选延迟最低的节点，tolerance=切换容差(ms)，防频繁抖动\n'
+             'fallback:    故障转移，按顺序用第一个可用的\n'
+             'load-balance: 负载均衡，strategy=sticky-sessions(同会话固定节点)/round-robin(轮询)\n'
+             'relay:       链式代理（节点串起来，免费池一般用不上）'),
+    ("code", 'include-all: true          自动包含所有订阅源的节点（推荐，新增订阅源不用改组）\n'
+             'proxies: [节点A, 节点B]    手动列节点或引用其他组；include-all 开启时忽略此项\n'
+             'url/interval/timeout:      测速地址、间隔(秒)、超时(ms)\n'
+             'max-failed-times:          连续失败几次就标记不可用（调小=坏节点下台更快）\n'
+             'lazy: false                主动按 interval 测速；true=用到才测（死节点发现慢）\n'
+             'exclude-filter: "^S4"      应急用：某源整批死掉时临时排除该源（S4 前缀）\n'
+             'default-selected: 自动选择  组内默认选中项'),
+    ("warn", "策略组改名后，rules 里引用它的旧名不会自动改（日志会提醒引用条数），记得去「分流规则」页同步。"),
+
+    ("h1", "◆ DNS"),
+    ("code", 'enhanced-mode: fake-ip     假IP模式：域名先返回假IP，真正解析在落地端做（推荐，延迟低）\n'
+             'fake-ip-range: 198.18.0.1/16   假IP池\n'
+             'fake-ip-filter:            不走假IP的域名白名单（微信/QQ登录等本地服务）：\n'
+             '  - \'+.lan\'               +. 开头=匹配所有子域\n'
+             'default-nameserver:        用来解析 DoH 服务器域名的普通 IP DNS（223.5.5.5 等）\n'
+             'nameserver:                主解析服务器，DoH 地址（https://doh.pub/dns-query 等）\n'
+             '                           走代理的流量用 fake-ip 不需要真实解析，所以国内 DNS 就够'),
+    ("dim", "  提示：fallback 国外 DNS 会导致直连拉取的域名解析失败或超时（需配 nameserver-policy），本配置特意不启用。"),
+
+    ("h1", "◆ 分流规则 rules"),
+    ("text", "语法：类型,参数,目标策略[,附加参数]，从上到下匹配，命中即停。"),
+    ("code", 'DOMAIN-SUFFIX,boki.moe,直连     后缀匹配域名\n'
+             'DOMAIN,www.example.com,直连     完整域名\n'
+             'DOMAIN-KEYWORD,google,节点选择   包含关键词\n'
+             'GEOSITE,cn,直连                 GeoSite 数据库（国内域名集合）\n'
+             'GEOIP,CN,直连,no-resolve        GeoIP 国家 IP 库；no-resolve=不触发DNS解析\n'
+             'RULE-SET,秋风广告规则,广告过滤   引用 rule-providers 里的规则集\n'
+             'MATCH,漏网之鱼                  兜底规则，必须放最后\n'
+             'AND,((DOMAIN,a.com),(NETWORK,UDP)),REJECT   逻辑组合，括号表达式当参数'),
+    ("text", "目标策略可选：代理组名 / 单个节点名（订阅动态生成，直接输入即可）/ "
+             "DIRECT(直连) / REJECT(拦截) / REJECT-DROP(拦截并丢弃) / "
+             "PASS(跳过本条继续往下匹配) / GLOBAL(内置全局组)。"),
+    ("warn", "顺序要点：广告拦截要放在 GEOSITE,cn 直连之前，否则国内广告域名先被直连放行；MATCH 永远在最后。"),
+    ("text", "点「新建」会在选中规则下方插入一条空白规则，在右侧填好内容后点「保存修改到选中」"
+             "（空规则会让 Clash 加载失败，保存时程序也会提醒）；「上移/下移」调整匹配优先级。"),
+    ("text", "点「检测规则顺序」可自动检查：空规则、MATCH 是否唯一且在最后、MATCH 后的失效规则、"
+             "广告拦截被国内直连挡住、引用不存在的策略组或规则集、重复规则、缺少 MATCH 兜底等。"),
+
+    ("h1", "◆ 全局设置速览"),
+    ("code", 'mixed-port: 7890        HTTP/SOCKS5 混合代理端口\n'
+             'allow-lan: false        是否允许局域网设备连接（true 需注意安全）\n'
+             'mode: rule              rule=按规则分流 / global=全部走代理 / direct=全部直连\n'
+             'log-level: info         silent/error/warning/info/debug\n'
+             'ipv6: true              IPv6 支持\n'
+             'unified-delay: true     统一延迟（去掉握手差异，测速更真实）\n'
+             'tcp-concurrent: true    TCP 并发连接（同时试多个IP，取最快）\n'
+             'geox-url:               geoip/geosite/mmdb/asn 数据库下载地址\n'
+             'profile.store-selected: true   记住手动选过的节点'),
+]
+
+
+# ----------------------------------------------------------------------
+# 表单字段包装：统一 get/set 接口
+# ----------------------------------------------------------------------
+class FieldWrap:
+    def __init__(self, kind, getter, setter):
+        self.kind = kind
+        self._get = getter
+        self._set = setter
+
+    def get(self):
+        return self._get()
+
+    def set(self, v):
+        self._set(v)
+
+
+# ----------------------------------------------------------------------
+# 左列表 + 右表单 的通用条目编辑页（订阅源 / 规则集 / 代理组 共用）
+# ----------------------------------------------------------------------
+class ItemTab:
+    def __init__(self, app, frame, spec, collection_key, mode, title, defaults_fn):
+        self.app = app
+        self.frame = frame
+        self.spec = spec
+        self.key = collection_key
+        self.mode = mode              # "map"=键值映射 / "list"=数组
+        self.title = title
+        self.defaults_fn = defaults_fn
+        self.sel = None               # 当前选中下标
+        self.fields = {}
+        self._build()
+
+    # ---------- 布局 ----------
+    def _build(self):
+        f = self.app.F
+        self.frame.grid_columnconfigure(1, weight=1)
+        self.frame.grid_rowconfigure(1, weight=1)
+
+        head = ctk.CTkFrame(self.frame, fg_color="transparent")
+        head.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 2))
+        ctk.CTkButton(head, text="新建", width=88, font=f,
+                      command=self.on_new).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(head, text="删除选中", width=88, font=f,
+                      fg_color="#8b2f2f", hover_color="#a83a3a", text_color="#ffffff",
+                      command=self.on_delete).pack(side="left", padx=(0, 5))
+        # 移动按钮放在「新建/删除」后面
+        ctk.CTkButton(head, text="上移", width=64, font=f, fg_color="gray40",
+                      hover_color="gray55", text_color="#ffffff",
+                      command=lambda: self.on_move(-1)).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(head, text="下移", width=64, font=f, fg_color="gray40",
+                      hover_color="gray55", text_color="#ffffff",
+                      command=lambda: self.on_move(1)).pack(side="left")
+
+        self.list_box = ctk.CTkScrollableFrame(self.frame, width=360)
+        self.list_box.grid(row=1, column=0, sticky="ns", padx=8, pady=(2, 8))
+
+        # 右列：顶部操作条 + 表单（操作条与「分流规则」页保持一致）
+        right = ctk.CTkFrame(self.frame, fg_color="transparent")
+        right.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(4, 8), pady=8)
+        right.grid_rowconfigure(1, weight=1)
+        right.grid_columnconfigure(0, weight=1)
+
+        bar = ctk.CTkFrame(right, fg_color="transparent")
+        bar.grid(row=0, column=0, sticky="ew")
+        ctk.CTkButton(bar, text="保存修改到选中", width=140, font=f,
+                      command=self.on_apply).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(bar, text="切换条目 / 新建 / 上移下移 / 保存文件时也会自动写回",
+                     font=self.app.FS, text_color=("#57606a", "#8a9299")).pack(side="left")
+
+        form = ctk.CTkScrollableFrame(right)
+        form.grid(row=1, column=0, sticky="nsew")
+        self.app.build_spec_form(form, self.spec, self.fields)
+
+        hint = ("提示：新建在选中条目下方插入；修改名称后保存会自动重命名；"
+                "表单未覆盖的字段原样保留，可在「原始YAML」页编辑。")
+        ctk.CTkLabel(form, text=hint, font=self.app.FS,
+                     text_color=("#57606a", "#8a9299"), anchor="w").grid(
+            row=999, column=0, columnspan=2, sticky="w", pady=(14, 2))
+
+    # ---------- 数据访问 ----------
+    def container(self, create=False):
+        data = self.app.data
+        if data is None:
+            return None
+        if self.key not in data:
+            if not create:
+                return None
+            data[self.key] = {} if self.mode == "map" else []
+        return data[self.key]
+
+    def names(self):
+        cont = self.container()
+        if cont is None:
+            return []
+        if self.mode == "map":
+            return [str(k) for k in cont.keys()]
+        return [str(it.get("name", f"项{i + 1}")) for i, it in enumerate(cont)]
+
+    def item_at(self, i):
+        cont = self.container()
+        if cont is None:
+            return None
+        if self.mode == "map":
+            keys = list(cont.keys())
+            return cont[keys[i]] if 0 <= i < len(keys) else None
+        return cont[i] if 0 <= i < len(cont) else None
+
+    # ---------- 列表 ----------
+    def refresh_list(self):
+        for w in self.list_box.winfo_children():
+            w.destroy()
+        for i, name in enumerate(self.names()):
+            selected = (i == self.sel)
+            btn = ctk.CTkButton(
+                self.list_box, text=name, anchor="w", font=self.app.F,
+                fg_color="#2b5b8a" if selected else "transparent",
+                hover_color="#2b5b8a" if selected else ("gray70", "gray30"),
+                text_color="#ffffff" if selected else ("gray10", "#dcdcdc"),
+                command=lambda i=i: self.select(i))
+            btn.pack(fill="x", padx=6, pady=2)
+
+    def select(self, i):
+        try:
+            self.commit()
+        except CommitError as e:
+            self.app.log(f"[{self.title}] 未切换：{e}", "err")
+            mb.showwarning(self.title, str(e))
+            return
+        self.sel = i
+        self.load_form()
+        self.refresh_list()
+
+    # ---------- 表单 ----------
+    def load_form(self):
+        item = self.item_at(self.sel) if self.sel is not None else None
+        if item is None:
+            return
+        if self.mode == "map":
+            keys = list(self.container().keys())
+            key = keys[self.sel]
+            self.fields["name"].set(str(key))
+            self.app.load_spec(item, [s for s in self.spec if s[0] != "name"], self.fields)
+        else:
+            self.app.load_spec(item, self.spec, self.fields)
+
+    def clear_form(self):
+        """清空右侧表单（打开新文件或应用原始 YAML 后调用，避免残留上一个文件的值）"""
+        for path, _label, kind, _e, _o in self.spec:
+            if kind == "sep" or path not in self.fields:
+                continue
+            fld = self.fields[path]
+            if kind == "switch":
+                fld.set(False)
+            elif kind == "textlines":
+                fld.set([])
+            else:
+                fld.set("")
+
+    def commit(self):
+        """把右侧表单写回当前选中条目；无选中或数据未加载时不动"""
+        if self.sel is None or self.app.data is None:
+            return
+        cont = self.container()
+        if cont is None:
+            return
+        n = len(self.names())
+        if self.sel >= n:
+            self.sel = None
+            return
+        if self.mode == "map":
+            old_name = list(cont.keys())[self.sel]
+            item = cont[old_name]
+        else:
+            item = cont[self.sel]
+            old_name = str(item.get("name", ""))
+
+        new_name = str(self.fields["name"].get()).strip()
+        if not new_name:
+            raise CommitError(f"「名称」不能为空")
+
+        if self.mode == "map":
+            # 键名即名称，不写进条目内部
+            self.app.apply_spec(item, [s for s in self.spec if s[0] != "name"], self.fields)
+            if new_name != old_name:
+                if new_name in cont:
+                    raise CommitError(f"名称「{new_name}」已存在")
+                rename_map_key(cont, old_name, new_name)
+                self.app.log(f"[{self.title}] 「{old_name}」已改名为「{new_name}」")
+        else:
+            self.app.apply_spec(item, self.spec, self.fields)
+            if new_name != old_name:
+                self.app.log(f"[{self.title}] 「{old_name}」已改名为「{new_name}」")
+                rules = self.app.data.get("rules") or []
+                refs = sum(1 for r in rules if isinstance(r, str) and old_name in r)
+                if refs:
+                    self.app.log(
+                        f"[{self.title}] 注意：有 {refs} 条分流规则仍引用旧名「{old_name}」，"
+                        f"请到「分流规则」页同步修改", "warn")
+        if self.post_apply is not None:
+            self.post_apply(item)
+
+    def on_apply(self):
+        """「保存修改到选中」：把右侧表单写回当前选中条目"""
+        if self.sel is None:
+            self.app.log(f"[{self.title}] 请先在左侧列表选中一项再保存修改", "warn")
+            return
+        try:
+            self.commit()
+        except CommitError as e:
+            self.app.log(f"[{self.title}] 保存失败：{e}", "err")
+            mb.showwarning(self.title, str(e))
+            return
+        if self.sel is not None:
+            self.app.log(f"[{self.title}] 已保存修改到「{self.names()[self.sel]}」", "ok")
+        self.load_form()          # 名称可能已改，重新载入显示最新数据
+        self.refresh_list()
+
+    def post_apply(self, item):
+        """子类钩子：写回后的额外处理"""
+        pass
+
+    def group_post_apply(self, item):
+        """代理组专用：include-all 与 proxies 的联动校验"""
+        if item.get("include-all"):
+            item.pop("proxies", None)
+        elif not item.get("proxies"):
+            raise CommitError(
+                f"代理组「{item.get('name', '?')}」未开启 include-all，"
+                f"节点列表 proxies 至少要有一行")
+
+    def provider_post_apply(self, item):
+        """订阅源专用：exclude-filter 里出现「品牌推广型」关键词时提醒（只提醒，不阻止保存）
+
+        这些词在真实节点名里也常见（某机场所有节点名都挂着 TG 频道名），命中会误杀好节点；
+        最坏情况过滤后一个不剩，内核只报一行 pull error: file doesn't have any proxy，
+        整个源静默清零 —— 所以宁可提醒，也别让它悄悄生效。
+        """
+        hits = risky_exclude_words(item.get("exclude-filter"))
+        if not hits:
+            return
+        self.app.log(f"[{self.title}] 排除词含推广型关键词 {'、'.join(hits)}，可能误杀真节点", "warn")
+        mb.showwarning(
+            f"{self.title} · 排除词风险",
+            "排除词里含 %s 这类「品牌推广型」关键词。\n\n"
+            "真实节点名里也常带这些词（例如某个机场的节点名统一挂着 TG 频道名），"
+            "命中会把好节点一起剔掉；极端情况下过滤后一个不剩，内核只报一行 "
+            "`pull error: file doesn't have any proxy`，整个源静默清零。\n\n"
+            "建议只保留状态型词：剩余|流量|到期|过期|重置|traffic|expire|expired"
+            % "、".join(hits))
+
+    # ---------- 增删 ----------
+    def on_new(self):
+        try:
+            self.commit()
+        except CommitError as e:
+            self.app.log(f"[{self.title}] {e}", "warn")
+        cont = self.container(create=True)
+        n = len(self.names())
+        # 在选中条目下方插入；未选中时加到末尾
+        pos = (self.sel + 1) if self.sel is not None and self.sel < n else n
+        prev_name = self.names()[pos - 1] if pos > 0 else None
+        idx = n + 1
+        if self.mode == "map":
+            k = f"s{idx}-new"
+            while k in cont:
+                idx += 1
+                k = f"s{idx}-new"
+            insert_map_item(cont, pos, k, self.defaults_fn(idx))
+            new_name = k
+        else:
+            item = self.defaults_fn(idx)
+            # 组名等显示名不允许重复，必要时追加序号
+            existing = set(self.names())
+            if "name" in item and item["name"] in existing:
+                base = item["name"]
+                k = 2
+                while f"{base}{k}" in existing:
+                    k += 1
+                item["name"] = f"{base}{k}"
+            cont.insert(pos, item)
+            new_name = str(item.get("name", f"项{pos + 1}"))
+        self.sel = pos
+        self.load_form()
+        self.refresh_list()
+        where = f"「{prev_name}」下方" if prev_name else "列表末尾"
+        self.app.log(f"[{self.title}] 已在{where}新建「{new_name}」（模板默认值，请核对各字段）")
+
+    def on_move(self, delta):
+        """上移/下移当前选中条目"""
+        if self.sel is None:
+            self.app.log(f"[{self.title}] 请先在左侧列表选中一项再移动", "warn")
+            return
+        try:
+            self.commit()          # 先把表单改动落盘，避免移动后错位
+        except CommitError as e:
+            self.app.log(f"[{self.title}] 未移动：{e}", "err")
+            return
+        cont = self.container()
+        n = len(self.names())
+        j = self.sel + delta
+        if not (0 <= j < n):
+            return
+        name_i, name_j = self.names()[self.sel], self.names()[j]
+        if self.mode == "map":
+            move_map_item(cont, self.sel, j)
+        else:
+            seq_swap_with_comments(cont, self.sel, j)
+        self.sel = j
+        self.refresh_list()
+        self.app.log(f"[{self.title}] 「{name_i}」已{'上' if delta < 0 else '下'}移"
+                     f"（原「{name_j}」的位置）")
+
+    def on_delete(self):
+        if self.sel is None:
+            self.app.log(f"[{self.title}] 请先在左侧列表选中一项再删除", "warn")
+            return
+        name = self.names()[self.sel]
+        if not mb.askyesno("删除确认", f"确定删除「{name}」吗？\n（保存前可点「重新加载」撤销）"):
+            return
+        cont = self.container()
+        if self.mode == "map":
+            keys = list(cont.keys())
+            del cont[keys[self.sel]]
+        else:
+            cont.pop(self.sel)
+        self.sel = None
+        self.refresh_list()
+        self.app.log(f"[{self.title}] 已删除「{name}」（保存后生效）")
+
+
+# ----------------------------------------------------------------------
+# 主窗口
+# ----------------------------------------------------------------------
+class ConfigEditorApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title("多订阅合并配置编辑器")
+        self.geometry("1024x680")
+        self.minsize(880, 600)
+        # 界面主题：默认深色，可在右上角菜单临时切换（不持久化，重启恢复深色）
+        self.appearance = DEFAULT_APPEARANCE
+        ctk.set_appearance_mode(self.appearance)
+        # 保存时是否备份原文件为 .bak（默认关闭，可在右上角开关临时切换，不持久化）
+        self.backup_enabled = False
+
+        self.F = ctk.CTkFont(family="Microsoft YaHei UI", size=13)
+        self.FB = ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold")
+        self.FS = ctk.CTkFont(family="Microsoft YaHei UI", size=11)
+
+        self.data = None
+        self.config_path = None
+        self.rules_sel = None
+        self._raw_snapshot = None       # 「原始YAML」页最近一次刷新的内容快照
+
+        self._build_header()
+        self._build_tabs()
+        self._build_log()
+        self.bind_all("<Control-s>", lambda e: self.on_save())
+        self.bind_all("<Control-S>", lambda e: self.on_save())
+
+        # 启动空白状态：不预加载任何文件，由用户点「打开」选择
+        self.log("请点右上角「打开」选择要编辑的 YAML 配置文件")
+
+    # ================= 顶部 =================
+    def _build_header(self):
+        head = ctk.CTkFrame(self, fg_color="transparent")
+        head.grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 4))
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        left = ctk.CTkFrame(head, fg_color="transparent")
+        left.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(left, text="多订阅合并配置编辑器", font=self.FB,
+                     anchor="w").pack(anchor="w")
+        self.path_label = ctk.CTkLabel(left, text="（未加载文件）", font=self.FS,
+                                       text_color=("#57606a", "#8a9299"), anchor="w")
+        self.path_label.pack(anchor="w")
+
+        right = ctk.CTkFrame(head, fg_color="transparent")
+        right.pack(side="right")
+        # 保存时是否备份为 .bak（默认开启，仅本次运行生效）
+        self.backup_var = tk.BooleanVar(value=self.backup_enabled)
+        ctk.CTkSwitch(right, text="保存时备份", font=self.FS, variable=self.backup_var,
+                      onvalue=True, offvalue=False, command=self.on_backup_toggle
+                      ).pack(side="left", padx=(0, 12))
+        # 主题切换：跟随系统 / 深色 / 浅色（仅本次运行生效，重启恢复深色）
+        ctk.CTkLabel(right, text="主题", font=self.FS,
+                     text_color=("#57606a", "#8a9299")).pack(side="left", padx=(0, 4))
+        self.theme_menu = ctk.CTkOptionMenu(right, width=110, font=self.F,
+                                            values=list(APPEARANCE_LABELS.keys()),
+                                            command=self.on_theme_change)
+        mode_to_label = {v: k for k, v in APPEARANCE_LABELS.items()}
+        self.theme_menu.set(mode_to_label.get(self.appearance, "跟随系统"))
+        self.theme_menu.pack(side="left", padx=(0, 12))
+        for text, cmd in [("打开", self.on_open), ("重新加载", self.on_reload),
+                          ("另存为", lambda: self.on_save(save_as=True)),
+                          ("保存 (Ctrl+S)", self.on_save)]:
+            fg = "#2f7d4f" if text.startswith("保存") else None
+            btn = ctk.CTkButton(right, text=text, width=100, font=self.F,
+                                command=cmd, fg_color=fg, text_color="#ffffff",
+                                hover_color="#3a9663" if fg else None)
+            btn.pack(side="left", padx=4)
+
+    def _show_path(self, path):
+        """显示当前文件路径；过长时保留末尾（文件名最有用）并截断，避免挤出右侧按钮"""
+        if not path:
+            self.path_label.configure(text="（未加载文件）")
+            return
+        font = getattr(self, "_path_font", None)
+        if font is None:
+            font = self._path_font = tkfont.Font(font=self.FS)
+        if font.measure(path) <= PATH_LABEL_MAX_PX:
+            self.path_label.configure(text=path)
+            return
+        tail = path
+        while tail and font.measure("…" + tail) > PATH_LABEL_MAX_PX:
+            tail = tail[1:]
+        self.path_label.configure(text="…" + tail)
+
+    def on_backup_toggle(self):
+        """切换保存时是否生成 .bak 备份"""
+        self.backup_enabled = bool(self.backup_var.get())
+        self.log("保存时备份已开启（原文件会另存为同名 .bak）" if self.backup_enabled
+                 else "保存时备份已关闭（直接覆盖原文件，不生成 .bak）",
+                 "info" if self.backup_enabled else "warn")
+
+    def on_theme_change(self, label):
+        """切换界面主题（仅本次运行生效，重启恢复默认深色）"""
+        val = APPEARANCE_LABELS.get(label, DEFAULT_APPEARANCE)
+        self.appearance = val
+        ctk.set_appearance_mode(val)
+        self.log(f"界面主题已切换为「{label}」（仅本次运行生效，重启恢复深色）")
+
+    # ================= 主体标签页 =================
+    def _build_tabs(self):
+        self.tabs = ctk.CTkTabview(self)
+        # CTkTabview 不支持 font 参数，通过内部 SegmentedButton 设置字体
+        if hasattr(self.tabs, "_segmented_button"):
+            self.tabs._segmented_button.configure(font=self.FB)
+        self.tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=4)
+
+        # --- 全局设置 ---
+        g = self.tabs.add("全局设置")
+        g.grid_columnconfigure(0, weight=1)
+        g.grid_rowconfigure(0, weight=1)
+        gf = ctk.CTkScrollableFrame(g)
+        gf.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        self.global_fields = {}
+        self.build_spec_form(gf, GLOBAL_SPEC, self.global_fields)
+
+        # --- DNS ---
+        d = self.tabs.add("DNS")
+        d.grid_columnconfigure(0, weight=1)
+        d.grid_rowconfigure(0, weight=1)
+        df = ctk.CTkScrollableFrame(d)
+        df.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        self.dns_fields = {}
+        self.build_spec_form(df, DNS_SPEC, self.dns_fields)
+
+        # --- 订阅源 ---
+        p = self.tabs.add("订阅源")
+        self.provider_tab = ItemTab(self, p, PROVIDER_SPEC, "proxy-providers",
+                                    "map", "订阅源", make_default_provider)
+        self.provider_tab.post_apply = self.provider_tab.provider_post_apply
+
+        # --- 代理组 ---
+        gp = self.tabs.add("代理组")
+        self.group_tab = ItemTab(self, gp, GROUP_SPEC, "proxy-groups",
+                                 "list", "代理组", make_default_group)
+        self.group_tab.post_apply = self.group_tab.group_post_apply
+
+        # --- 规则集 ---
+        rp = self.tabs.add("规则集")
+        self.rprovider_tab = ItemTab(self, rp, RULE_PROVIDER_SPEC, "rule-providers",
+                                     "map", "规则集", make_default_rule_provider)
+
+        # --- 分流规则 ---
+        r = self.tabs.add("分流规则")
+        self._build_rules_tab(r)
+
+        # --- 原始 YAML ---
+        raw = self.tabs.add("原始YAML")
+        self._build_raw_tab(raw)
+
+        # --- 帮助 ---
+        self._build_help_tab(self.tabs.add("帮助"))
+
+    # ---------- 通用表单构建 ----------
+    def build_spec_form(self, parent, spec, out):
+        """按规格在 parent 上生成 标签+控件，句柄存入 out[path]"""
+        f, fs = self.F, self.FS
+        parent.grid_columnconfigure(1, weight=1)   # 控件列随窗口宽度伸缩
+        row = 0
+        for path, label, kind, extra, optional in spec:
+            if kind == "sep":
+                ctk.CTkLabel(parent, text=f"◆ {label}", font=f,
+                             text_color=("#0969da", "#4fa3e3"), anchor="w").grid(
+                    row=row, column=0, columnspan=2, sticky="w", pady=(16, 4))
+                row += 1
+                continue
+
+            ctk.CTkLabel(parent, text=label, font=fs, anchor="w",
+                         width=200, justify="left", wraplength=190).grid(
+                row=row, column=0, sticky="w", pady=3)
+
+            if kind == "switch":
+                var = tk.BooleanVar(value=False)
+                w = ctk.CTkSwitch(parent, text="", variable=var, onvalue=True, offvalue=False)
+                w.grid(row=row, column=1, sticky="w", pady=3, padx=(6, 4))
+                out[path] = FieldWrap("switch", var.get, lambda v, var=var: var.set(bool(v)))
+            elif kind == "textlines":
+                w = ctk.CTkTextbox(parent, height=extra or 100, font=f)
+                w.grid(row=row, column=1, sticky="ew", pady=3, padx=(6, 4))
+
+                def getter(w=w):
+                    return [ln.strip() for ln in w.get("1.0", "end").splitlines() if ln.strip()]
+
+                def setter(v, w=w):
+                    w.delete("1.0", "end")
+                    w.insert("1.0", "\n".join(str(x) for x in (v or [])))
+
+                out[path] = FieldWrap("textlines", getter, setter)
+            elif kind == "combo":
+                w = ctk.CTkComboBox(parent, values=extra or [], width=380, font=f)
+                w.grid(row=row, column=1, sticky="ew", pady=3, padx=(6, 4))
+                out[path] = FieldWrap(
+                    "combo",
+                    lambda w=w: w.get().strip(),
+                    lambda v, w=w: w.set("" if v is None else str(v)))
+            else:  # entry / int 共用单行输入框
+                width = extra if isinstance(extra, int) else 380
+                w = ctk.CTkEntry(parent, width=width, font=f)
+                w.grid(row=row, column=1, sticky="ew", pady=3, padx=(6, 4))
+                out[path] = FieldWrap(
+                    "entry",
+                    lambda w=w: w.get().strip(),
+                    lambda v, w=w: (w.delete(0, "end"),
+                                    w.insert(0, "" if v is None else str(v))))
+            row += 1
+
+    def load_spec(self, root, spec, fields):
+        """把数据写入表单"""
+        for path, _label, kind, _e, _o in spec:
+            if kind == "sep":
+                continue
+            ok, val = get_nested(root, path)
+            fld = fields[path]
+            if kind == "switch":
+                fld.set(bool(val) if ok else False)
+            elif kind == "int":
+                fld.set(str(val) if ok and val is not None else "")
+            elif kind == "textlines":
+                fld.set(val if ok and val is not None else [])
+            else:
+                fld.set(str(val) if ok and val is not None else "")
+
+    def apply_spec(self, root, spec, fields):
+        """把表单写回数据；int 做强校验，可选字段留空即删除。
+
+        原则：**值没变就一个字节都不改**——原文件里标量上的引号、
+        序列上的缩进与注释块都挂在原对象上，无脑覆盖会连带丢注释。
+        值确实变了时，序列就地改内容（保留原集合对象，注释不丢）。
+        只有「键本来就不存在且留空」时才跳过，不报错（兼容精简配置）。
+        """
+        for path, label, kind, _e, optional in spec:
+            if kind == "sep":
+                continue
+            fld = fields[path]
+            if kind == "switch":
+                want = bool(fld.get())
+                ok, cur = get_nested(root, path)
+                if ok and bool(cur) == want:
+                    continue
+                set_nested(root, path, want)
+                continue
+            if kind == "int":
+                raw = str(fld.get()).strip()
+                if raw == "":
+                    if optional:
+                        del_nested(root, path)
+                    elif get_nested(root, path)[0]:
+                        raise CommitError(f"「{label}」不能为空")
+                    # 键本就不存在：留空视为不添加，不报错
+                else:
+                    try:
+                        val = int(raw)
+                    except ValueError:
+                        raise CommitError(f"「{label}」必须是整数，当前输入：{raw}")
+                    ok, cur = get_nested(root, path)
+                    if ok and isinstance(cur, int) and not isinstance(cur, bool) \
+                            and cur == val:
+                        continue
+                    set_nested(root, path, val)
+                continue
+            if kind == "textlines":
+                lines = fld.get()
+                if not lines:
+                    if optional:
+                        del_nested(root, path)
+                    elif get_nested(root, path)[0]:
+                        raise CommitError(f"「{label}」至少需要一行")
+                    continue
+                ok, cur = get_nested(root, path)
+                if ok and isinstance(cur, list) and list(cur) == lines:
+                    continue                      # 内容未变，别动原对象
+                if ok and isinstance(cur, list):
+                    self._update_list_inplace(cur, lines)
+                else:
+                    set_nested(root, path, lines)
+                continue
+            raw = str(fld.get())
+            if raw:
+                ok, cur = get_nested(root, path)
+                if ok and str(cur) == raw:
+                    continue
+                set_nested(root, path, raw)
+            elif optional:
+                del_nested(root, path)
+            elif get_nested(root, path)[0]:
+                raise CommitError(f"「{label}」不能为空")
+
+    @staticmethod
+    def _update_list_inplace(seq, lines):
+        """就地更新列表内容：保留原集合对象、末尾注释块、原值对象的引号风格"""
+        tail = split_tail_comment_slots(seq)       # 末尾注释块，稍后挂回新的末项
+        # 原值对象池：按值缓存原文件里的标量对象。新内容能复用时，
+        # 引号风格（如 "https://..." / '+.lan'）得以保留；改回原值也仍是原样
+        pool = getattr(seq, "_orig_items_pool", None)
+        if pool is None:
+            pool = {}
+            for item in seq:
+                pool.setdefault(str(item), []).append(item)
+            try:
+                seq._orig_items_pool = pool
+            except Exception:
+                pass
+        rebuilt = []
+        for val in lines:
+            # 同一值多次出现时复用同一个原值对象即可（标量不可变，导出无副作用）
+            rebuilt.append(pool[val][0] if val in pool else val)
+        seq[:] = rebuilt
+        # 中间注释按下标保留（越界的一律丢弃），末尾注释统一挂到最后一项
+        if hasattr(seq, "ca"):
+            items = seq.ca.items
+            for k in [k for k in items if not (0 <= k < len(seq))]:
+                items.pop(k, None)
+            if tail and len(seq):
+                items[len(seq) - 1] = merge_comment_slots(tail)
+
+    # ---------- 分流规则页（左列表 + 右表单） ----------
+    def _build_rules_tab(self, tab):
+        f, fs = self.F, self.FS
+        tab.grid_rowconfigure(0, weight=1)
+        tab.grid_columnconfigure(1, weight=1)
+
+        # ===== 左列：规则列表 =====
+        left = ctk.CTkFrame(tab, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="nsw", padx=8, pady=8)
+        left.grid_rowconfigure(1, weight=1)
+        head = ctk.CTkFrame(left, fg_color="transparent")
+        head.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        # 与订阅源/规则集/代理组三页保持一致：新建 / 删除选中 / 上移 / 下移
+        ctk.CTkButton(head, text="新建", width=88, font=f,
+                      command=self.rule_new).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(head, text="删除选中", width=88, font=f,
+                      fg_color="#8b2f2f", hover_color="#a83a3a", text_color="#ffffff",
+                      command=self.rule_delete).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(head, text="上移", width=64, font=f, fg_color="gray40",
+                      hover_color="gray55", text_color="#ffffff",
+                      command=lambda: self.rule_move(-1)).pack(side="left", padx=(0, 5))
+        ctk.CTkButton(head, text="下移", width=64, font=f, fg_color="gray40",
+                      hover_color="gray55", text_color="#ffffff",
+                      command=lambda: self.rule_move(1)).pack(side="left")
+        self.rules_box = ctk.CTkScrollableFrame(left, width=360)
+        self.rules_box.grid(row=1, column=0, sticky="ns")
+
+        # ===== 右列：编辑表单 =====
+        form = ctk.CTkFrame(tab)
+        form.grid(row=0, column=1, sticky="nsew", padx=(0, 8), pady=8)
+        form.grid_columnconfigure(1, weight=1)
+
+        bar = ctk.CTkFrame(form, fg_color="transparent")
+        bar.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=(10, 0))
+        for text, cmd in [("保存修改到选中", self.rule_modify),
+                          ("检测规则顺序", self.check_rules_order)]:
+            ctk.CTkButton(bar, text=text, width=140, font=f, command=cmd
+                          ).pack(side="left", padx=(0, 5))
+        self.rule_sel_label = ctk.CTkLabel(bar, text="（点击左侧规则行载入编辑）",
+                                           font=fs, text_color=("#57606a", "#8a9299"))
+        self.rule_sel_label.pack(side="right")
+
+        def sep(row, label):
+            ctk.CTkLabel(form, text=f"◆ {label}", font=f,
+                         text_color=("#0969da", "#4fa3e3"), anchor="w").grid(
+                row=row, column=0, columnspan=2, sticky="w",
+                padx=10, pady=(16, 4))
+
+        def lbl(row, text):
+            ctk.CTkLabel(form, text=text, font=fs, anchor="w",
+                         width=150, justify="left").grid(
+                row=row, column=0, sticky="w", padx=10, pady=3)
+
+        sep(1, "规则构成（修改任一字段，下方原文实时组合）")
+        lbl(2, "规则类型 type")
+        self.rule_type_cb = ctk.CTkComboBox(form, values=RULE_TYPES, width=380, font=f)
+        self.rule_type_cb.grid(row=2, column=1, sticky="ew", pady=3, padx=(6, 10))
+        self.rule_type_cb.configure(command=lambda _=None: self._rule_compose_preview())
+        self.rule_type_cb.bind("<KeyRelease>", lambda _e: self._rule_compose_preview())
+
+        lbl(3, "参数值 value")
+        self.rule_payload_entry = ctk.CTkEntry(
+            form, width=380, font=f,
+            placeholder_text="如 cn、boki.moe、规则集名称；MATCH 无参数留空")
+        self.rule_payload_entry.grid(row=3, column=1, sticky="ew", pady=3, padx=(6, 10))
+        self.rule_payload_entry.bind("<KeyRelease>", lambda _e: self._rule_compose_preview())
+
+        lbl(4, "目标策略 target")
+        self.rule_target_cb = ctk.CTkComboBox(form, width=380, font=f)
+        self.rule_target_cb.grid(row=4, column=1, sticky="ew", pady=3, padx=(6, 10))
+        self.rule_target_cb.configure(command=lambda _=None: self._rule_compose_preview())
+        self.rule_target_cb.bind("<KeyRelease>", lambda _e: self._rule_compose_preview())
+
+        lbl(5, "附加参数")
+        self.rule_extra_entry = ctk.CTkEntry(
+            form, width=380, font=f,
+            placeholder_text="可选，如 no-resolve（多个用英文逗号分隔）")
+        self.rule_extra_entry.grid(row=5, column=1, sticky="ew", pady=3, padx=(6, 10))
+        self.rule_extra_entry.bind("<KeyRelease>", lambda _e: self._rule_compose_preview())
+
+        lbl(6, "组合预览")
+        self.rule_preview_label = ctk.CTkLabel(form, text="（未选择规则）", font=f,
+                                               text_color=("#1a7f37", "#7ee787"), anchor="w",
+                                               justify="left", wraplength=540)
+        self.rule_preview_label.grid(row=6, column=1, sticky="w", pady=3, padx=(6, 10))
+
+        sep(7, "规则原文（保存以此为准；复杂规则可在这里直接改）")
+        lbl(8, "规则原文")
+        self.rule_raw_entry = ctk.CTkEntry(form, width=560, font=f,
+                                           placeholder_text="例如：GEOSITE,openai,节点选择")
+        self.rule_raw_entry.grid(row=8, column=1, sticky="ew", pady=3, padx=(6, 10))
+        self.rule_raw_entry.bind("<KeyRelease>", lambda _e: self._rule_raw_changed())
+
+        ctk.CTkButton(form, text="解析原文到表单", width=140, font=f,
+                      command=self._rule_parse_raw).grid(
+            row=9, column=1, sticky="w", pady=(2, 0), padx=(6, 10))
+        self.rule_parse_hint = ctk.CTkLabel(form, text="", font=fs,
+                                            text_color=("#57606a", "#8a9299"), anchor="w")
+        self.rule_parse_hint.grid(row=9, column=0, sticky="w", padx=10)
+
+        ctk.CTkLabel(form,
+                     text="说明：点「新建」在选中条目下方插入一条空白规则；点击左侧规则行载入表单；"
+                          "规则类型为空时不自动组合，只认原文。"
+                          "逻辑规则（AND/OR/NOT/SUB-RULE）的参数是括号表达式，原样填在「参数值」即可。",
+                     font=fs, text_color=("#57606a", "#8a9299"), anchor="w",
+                     justify="left", wraplength=560).grid(
+            row=10, column=0, columnspan=2, sticky="w", padx=10, pady=(14, 10))
+
+    # ---------- 分流规则：数据与表单联动 ----------
+    def rules_container(self, create=False):
+        if self.data is None:
+            return None
+        if "rules" not in self.data:
+            if not create:
+                return []
+            self.data["rules"] = []
+        return self.data["rules"]
+
+    def refresh_rules(self):
+        for w in self.rules_box.winfo_children():
+            w.destroy()
+        rules = self.rules_container()
+        for i, r in enumerate(rules or []):
+            selected = (i == self.rules_sel)
+            text = str(r).strip()
+            if not text:
+                text = "（空白，请在右侧填写）"      # 新建的空白规则
+            btn = ctk.CTkButton(
+                self.rules_box,
+                text=f"{i + 1:>2}.  {text}",
+                anchor="w", font=self.F,
+                fg_color="#2b5b8a" if selected else "transparent",
+                hover_color="#2b5b8a" if selected else ("gray70", "gray30"),
+                text_color="#ffffff" if selected else ("gray10", "#dcdcdc"),
+                command=lambda i=i: self.rule_pick(i))
+            btn.pack(fill="x", padx=6, pady=1)
+
+    def _rule_targets(self):
+        """目标策略下拉选项 = 内置策略 + 当前所有代理组名。
+        Mihomo 官方还支持直接填单个节点名（订阅动态生成，无法枚举，手动输入即可）。"""
+        base = ["DIRECT", "REJECT", "REJECT-DROP", "PASS", "GLOBAL"]
+        groups = []
+        if isinstance(self.data, dict):          # 空白启动时 data 为 None
+            groups = [str(g.get("name")) for g in (self.data.get("proxy-groups") or [])
+                      if isinstance(g, dict) and g.get("name")]
+        return base + groups
+
+    @staticmethod
+    def _set_entry(w, value):
+        if hasattr(w, "set"):                 # CTkComboBox
+            w.set("" if value is None else str(value))
+        else:                                 # CTkEntry
+            w.delete(0, "end")
+            w.insert(0, "" if value is None else str(value))
+
+    def rule_pick(self, i):
+        self.rules_sel = i
+        rules = self.rules_container()
+        if rules and 0 <= i < len(rules):
+            self.rule_target_cb.configure(values=self._rule_targets())
+            self._set_entry(self.rule_raw_entry, str(rules[i]))
+            self._rule_parse_raw()
+            self.rule_sel_label.configure(text=f"正在编辑第 {i + 1} 条")
+        self.refresh_rules()
+
+    def _rule_compose_preview(self, *_):
+        """由结构化字段组合规则原文（类型为空时不组合）"""
+        rtype = self.rule_type_cb.get().strip()
+        payload = self.rule_payload_entry.get().strip()
+        target = self.rule_target_cb.get().strip()
+        extra = self.rule_extra_entry.get().strip()
+        if not rtype:
+            self.rule_preview_label.configure(
+                text="（规则类型为空：不自动组合，请直接编辑规则原文）")
+            return
+        if not target:
+            self.rule_preview_label.configure(
+                text="（目标策略为空：填好类型/参数/目标后自动组合，或直接编辑原文）")
+            return
+        raw = compose_rule_text(rtype, payload, target, extra)
+        self._set_entry(self.rule_raw_entry, raw)
+        self.rule_preview_label.configure(text=raw)
+
+    def _rule_raw_changed(self, *_):
+        """用户手改原文时只刷新预览，不打断输入"""
+        raw = self.rule_raw_entry.get().strip()
+        self.rule_preview_label.configure(text=raw if raw else "（规则原文为空）")
+
+    def _rule_parse_raw(self):
+        """把规则原文解析进结构化字段"""
+        raw = self.rule_raw_entry.get().strip()
+        if not raw:
+            # 新建的空白规则：清空结构化字段，等用户填写
+            for w in (self.rule_type_cb, self.rule_payload_entry,
+                      self.rule_target_cb, self.rule_extra_entry):
+                self._set_entry(w, "")
+            self.rule_preview_label.configure(
+                text="（空白规则：填好类型/参数/目标，或直接填规则原文）")
+            self.rule_parse_hint.configure(text="")
+            return
+        parsed = parse_rule_text(raw)
+        if parsed is None:
+            for w in (self.rule_type_cb, self.rule_payload_entry,
+                      self.rule_target_cb, self.rule_extra_entry):
+                self._set_entry(w, "")
+            self.rule_preview_label.configure(text=raw if raw else "（规则原文为空）")
+            self.rule_parse_hint.configure(text="该规则只有一段，无法按结构解析，请直接编辑原文")
+            return
+        rtype, payload, target, extras = parsed
+        self.rule_type_cb.configure(values=RULE_TYPES)
+        self.rule_target_cb.configure(values=self._rule_targets())
+        self._set_entry(self.rule_type_cb, rtype)
+        self._set_entry(self.rule_payload_entry, payload)
+        self._set_entry(self.rule_target_cb, target)
+        self._set_entry(self.rule_extra_entry, ",".join(extras))
+        self.rule_preview_label.configure(text=raw)
+        self.rule_parse_hint.configure(text="已按结构解析到上方各字段")
+
+    def _rule_clear_form(self):
+        for w in (self.rule_type_cb, self.rule_payload_entry, self.rule_target_cb,
+                  self.rule_extra_entry, self.rule_raw_entry):
+            self._set_entry(w, "")
+        self.rule_preview_label.configure(text="（未选择规则）")
+        self.rule_parse_hint.configure(text="")
+        if getattr(self, "rule_sel_label", None) is not None:
+            self.rule_sel_label.configure(text="（点击规则行载入编辑）")
+
+    def _rule_text(self):
+        # 结构化字段的每次修改都会实时同步到原文（KeyRelease / 下拉回调），
+        # 手改原文也不会被覆盖，因此这里直接以原文为准
+        t = self.rule_raw_entry.get().strip()
+        if not t:
+            raise CommitError("规则内容不能为空（在右侧填结构化字段，或直接填规则原文）")
+        return t
+
+    def rule_commit_if_dirty(self):
+        """把右侧表单里还没写回的改动落到选中规则上（与其它分页切换/移动前的自动写回一致）"""
+        rules = self.rules_container()
+        if not rules or self.rules_sel is None or not (0 <= self.rules_sel < len(rules)):
+            return
+        t = self.rule_raw_entry.get().strip()
+        if not t or t == str(rules[self.rules_sel]).strip():
+            return
+        old = rules[self.rules_sel]
+        rules[self.rules_sel] = t
+        self.log(f"分流规则：第 {self.rules_sel + 1} 条「{old}」→「{t}」")
+
+    def rule_new(self):
+        """在选中条目下方新建一条空白规则（未选中时加到末尾）"""
+        self.rule_commit_if_dirty()          # 先落盘当前编辑，避免被清空
+        rules = self.rules_container(create=True)
+        n = len(rules)
+        pos = (self.rules_sel + 1) if self.rules_sel is not None and self.rules_sel < n else n
+        prev = str(rules[pos - 1]) if pos > 0 else None
+        rules.insert(pos, "")
+        # 注释跟随：原本标注第 pos 条的注释块（记在 pos-1 上）改记到 pos，
+        # 才能继续贴在原条目上方，而不是跑到新规则头上
+        if hasattr(rules, "ca") and 0 < pos < len(rules):
+            items = rules.ca.items
+            if (pos - 1) in items:
+                items[pos] = items.pop(pos - 1)
+        self.rules_sel = pos
+        self._rule_clear_form()
+        if getattr(self, "rule_sel_label", None) is not None:
+            self.rule_sel_label.configure(text=f"正在编辑第 {pos + 1} 条（空白）")
+        self.refresh_rules()
+        where = f"「{prev}」下方" if prev else "列表末尾"
+        self.log(f"分流规则：已在{where}新建空白规则（第 {pos + 1} 条）——"
+                 f"在右侧填好内容后点「保存修改到选中」；空规则会让 Clash 加载失败",
+                 "warn")
+
+    def rule_modify(self):
+        rules = self.rules_container()
+        if not rules:
+            self.log("当前没有规则可修改", "warn")
+            return
+        if self.rules_sel is None or not (0 <= self.rules_sel < len(rules)):
+            self.log("请先点击列表中的某条规则再「保存修改到选中」", "warn")
+            return
+        try:
+            t = self._rule_text()
+        except CommitError as e:
+            self.log(str(e), "err")
+            return
+        old = rules[self.rules_sel]
+        rules[self.rules_sel] = t
+        self.log(f"分流规则：第 {self.rules_sel + 1} 条「{old}」→「{t}」")
+        self.refresh_rules()
+
+    def rule_move(self, delta):
+        rules = self.rules_container()
+        if not rules or self.rules_sel is None:
+            self.log("请先点击列表中的某条规则", "warn")
+            return
+        j = self.rules_sel + delta
+        if not (0 <= j < len(rules)):
+            return
+        self.rule_commit_if_dirty()          # 先落盘当前编辑，移动后会重新载入表单
+        seq_swap_with_comments(rules, self.rules_sel, j)
+        self.log(f"分流规则：第 {self.rules_sel + 1} 条已{'上' if delta < 0 else '下'}移到第 {j + 1} 条")
+        self.rules_sel = j
+        self.rule_pick(j)
+
+    def rule_delete(self):
+        rules = self.rules_container()
+        if not rules or self.rules_sel is None:
+            self.log("请先点击列表中的某条规则", "warn")
+            return
+        pos = self.rules_sel
+        self.rule_commit_if_dirty()          # 先把改动落盘再删（日志顺序更清楚）
+        # 注释跟随：先整理注释条目再删条目。
+        #   * 被删条目的注释块（记在 pos-1 上）一并删除
+        #   * 下一条目的注释块（记在 pos 上）跟着它回移到 pos-1
+        #   * ruamel 的 pop 会删掉 key==pos 的注释并下移其余（此时 key==pos 已空，
+        #     其余各注释恰好跟着各自条目就位）
+        if hasattr(rules, "ca") and pos > 0:
+            items = rules.ca.items
+            items.pop(pos - 1, None)
+            if pos in items:
+                items[pos - 1] = items.pop(pos)
+        old = rules.pop(pos)
+        self.rules_sel = None
+        self._rule_clear_form()
+        self.log(f"分流规则：已删除「{old}」")
+        self.refresh_rules()
+
+    # ---------- 规则顺序检测 ----------
+    BUILTIN_TARGETS = ("DIRECT", "REJECT", "REJECT-DROP", "PASS", "GLOBAL")
+    # 这些 GEOSITE 集合代表「国内域名直连」，广告规则排在它们之后会被吃掉
+    _CN_SITE_SETS = ("cn", "geolocation-cn", "apple-cn", "cn@cn")
+
+    @staticmethod
+    def _rule_parts(r):
+        """把规则拆成 (类型, 参数, 目标策略)；无法识别返回 None"""
+        parts = split_top_level(str(r))
+        if not parts or not parts[0]:
+            return None
+        rtype = parts[0].upper()
+        payload = parts[1] if len(parts) >= 2 and rtype != "MATCH" else ""
+        if len(parts) >= 3:
+            target = parts[2]          # 目标策略固定在第 3 段，后面是附加参数
+        elif len(parts) == 2:
+            target = parts[1]          # 如 MATCH,漏网之鱼
+        else:
+            target = ""
+        return rtype, payload, target
+
+    @staticmethod
+    def _is_direct_target(target):
+        return target == "DIRECT" or "直连" in target
+
+    @staticmethod
+    def _is_ad_rule(rtype, payload, target):
+        if target.upper().startswith("REJECT"):
+            return True
+        low = payload.lower()
+        return any(k in low or k in payload
+                   for k in ("ads", "adblock", "track", "malware", "广告", "跟踪"))
+
+    def check_rules_order(self):
+        """检测规则顺序问题：MATCH 位置、失效规则、广告拦截被直连挡住、
+        引用不存在的策略组/规则集、重复规则等。结果输出到日志并弹窗汇总。"""
+        rules = self.rules_container() or []
+        if not rules:
+            self.log("规则顺序检测：当前没有规则", "warn")
+            return
+        groups = {str(g.get("name")) for g in (self.data.get("proxy-groups") or [])
+                  if isinstance(g, dict) and g.get("name")}
+        rproviders = set(self.data.get("rule-providers") or {})
+        valid_targets = set(self.BUILTIN_TARGETS) | groups
+        problems = []              # (级别, 下标, 消息)
+        match_idx = None
+        first_seen = {}
+
+        for i, r in enumerate(rules):
+            parsed = self._rule_parts(r)
+            if parsed is None:
+                if not str(r).strip():
+                    problems.append(("err", i,
+                                     "规则为空（新建后还没填写）——空规则会使 Clash 配置加载失败"))
+                else:
+                    problems.append(("warn", i, "规则无法识别，请检查格式（如 TYPE,参数,目标策略）"))
+                continue
+            rtype, payload, target = parsed
+            # MATCH 必须唯一且在最后
+            if rtype == "MATCH":
+                if match_idx is not None:
+                    problems.append(("err", i,
+                                     f"出现第二个 MATCH 兜底（第 {match_idx + 1} 条已有），本条永不生效"))
+                else:
+                    match_idx = i
+            elif match_idx is not None:
+                problems.append(("err", i,
+                                 f"MATCH 之后的规则永不生效（MATCH 在第 {match_idx + 1} 条）"))
+            # 目标策略有效性
+            if not target:
+                problems.append(("err", i, "缺少目标策略（格式：类型,参数,目标策略）"))
+            elif target not in valid_targets:
+                problems.append(("warn", i,
+                                 f"目标策略「{target}」既不是内置策略也不是代理组名"
+                                 f"（若为订阅里的单个节点名可忽略）"))
+            # RULE-SET 引用存在性
+            if rtype == "RULE-SET":
+                if not payload:
+                    problems.append(("err", i, "RULE-SET 缺少规则集名称"))
+                elif payload not in rproviders:
+                    problems.append(("err", i, f"引用的规则集「{payload}」在「规则集」页不存在"))
+            # 重复规则
+            key = str(r)
+            if key in first_seen:
+                problems.append(("warn", i, f"与第 {first_seen[key] + 1} 条完全重复"))
+            else:
+                first_seen[key] = i
+
+        # 广告拦截被国内直连挡住（广告规则必须排在 GEOSITE,cn / GEOIP,CN 直连之前）
+        cn_direct = []
+        for i, r in enumerate(rules):
+            parsed = self._rule_parts(r)
+            if parsed is None:
+                continue
+            rtype, payload, target = parsed
+            if rtype == "MATCH":
+                break
+            if self._is_direct_target(target) and (
+                    (rtype == "GEOSITE" and (payload in self._CN_SITE_SETS
+                                             or payload.startswith("cn@")
+                                             or payload.endswith("@cn")))
+                    or (rtype == "GEOIP" and payload.upper() == "CN")):
+                cn_direct.append(i)
+        for i, r in enumerate(rules):
+            parsed = self._rule_parts(r)
+            if parsed is None:
+                continue
+            rtype, payload, target = parsed
+            if rtype == "MATCH":
+                break
+            if self._is_ad_rule(rtype, payload, target):
+                blockers = [p + 1 for p in cn_direct if p < i]
+                if blockers:
+                    problems.append((
+                        "err", i,
+                        f"广告拦截规则被更靠前的国内直连规则（第 {'、'.join(map(str, blockers))} 条）"
+                        f"挡住，命中直连的广告域名会先被放行，导致拦截失效"))
+
+        if match_idx is None:
+            problems.append(("warn", -1, "缺少 MATCH 兜底规则，未匹配流量的走向将不可控"))
+
+        n_err = sum(1 for p in problems if p[0] == "err")
+        n_warn = len(problems) - n_err
+        if not problems:
+            self.log(f"规则顺序检测：共 {len(rules)} 条规则，全部通过，未发现问题", "ok")
+            mb.showinfo("规则检测", f"共 {len(rules)} 条规则，检测通过，未发现问题。")
+            return
+        for level, i, msg in problems:
+            where = f"第 {i + 1} 条" if i >= 0 else "全局"
+            self.log(f"规则检测 {where}［{'错误' if level == 'err' else '警告'}］：{msg}", level)
+        mb.showwarning("规则检测", f"发现 {n_err} 个错误、{n_warn} 个警告，详情见日志区。")
+
+    # ---------- 原始 YAML 页 ----------
+    def _build_raw_tab(self, tab):
+        f = self.F
+        tab.grid_rowconfigure(1, weight=1)
+        tab.grid_columnconfigure(0, weight=1)
+        bar = ctk.CTkFrame(tab, fg_color="transparent")
+        bar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 2))
+        ctk.CTkButton(bar, text="从当前配置刷新", width=150, font=f,
+                      command=self.raw_refresh).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(bar, text="把文本应用为当前配置", width=170, font=f,
+                      fg_color="#2f7d4f", hover_color="#3a9663", text_color="#ffffff",
+                      command=self.raw_apply).pack(side="left")
+        ctk.CTkLabel(bar, text="适合修改表单未覆盖的字段（如被注释的 tun 块）。"
+                              "应用成功后各标签页自动刷新。",
+                     font=self.FS, text_color=("#57606a", "#8a9299")).pack(side="left", padx=10)
+        self.raw_box = ctk.CTkTextbox(tab, font=f)
+        self.raw_box.grid(row=1, column=0, sticky="nsew", padx=8, pady=(2, 8))
+
+    def raw_refresh(self):
+        if self.data is None:
+            self.log("尚未加载配置", "warn")
+            return
+        text = dump_yaml_text(self.data)
+        self.raw_box.delete("1.0", "end")
+        self.raw_box.insert("1.0", text)
+        # 记录快照：用来判断「原始YAML」页里是否有用户手改但尚未应用的内容
+        # （不能用「与当前 data 的导出不一致」来判断——表单里改了别处也会不一致）
+        self._raw_snapshot = text
+
+    def raw_has_unapplied_edits(self):
+        """「原始YAML」页是否被手改过且未应用"""
+        snapshot = getattr(self, "_raw_snapshot", None)
+        if snapshot is None:
+            return False
+        try:
+            return self.raw_box.get("1.0", "end").strip() != snapshot.strip()
+        except Exception:
+            return False
+
+    def raw_apply(self, silent=False):
+        text = self.raw_box.get("1.0", "end")
+        try:
+            data = load_yaml_text(text)
+        except Exception as e:
+            msg = str(e)[:600]
+            self.log(f"原始 YAML 解析失败：{msg}", "err")
+            mb.showerror("解析失败", f"YAML 解析失败：\n{msg}")
+            return False
+        if not isinstance(data, dict):
+            mb.showerror("解析失败", "YAML 顶层必须是键值映射")
+            return False
+        self.data = data
+        self.rules_sel = None
+        self.refresh_all()
+        if not silent:
+            self.log("原始 YAML 已应用，所有标签页已刷新", "ok")
+        return True
+
+    # ---------- 帮助页 ----------
+    def _build_help_tab(self, tab):
+        tab.grid_rowconfigure(0, weight=1)
+        tab.grid_columnconfigure(0, weight=1)
+        box = ctk.CTkTextbox(tab, font=self.F)
+        box.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+        # tkinter Text 的 tag 不支持深浅色元组，用深浅背景下都可读的固定色
+        box.tag_config("h1", foreground="#0969da")
+        box.tag_config("code", foreground="#9a6700")
+        box.tag_config("warn", foreground="#cf222e")
+        box.tag_config("dim", foreground="#6e7781")
+        # CTkTextbox 禁止 tag_config 设字体，通过底层 Text 设置（标题加粗/代码等宽）
+        tk_box = getattr(box, "_textbox", None)
+        if tk_box is not None:
+            tk_box.tag_config("h1", font=self.FB)
+            tk_box.tag_config("code", font=("Consolas", 12))
+        for style, text in HELP_CONTENT:
+            if style == "h1":
+                box.insert("end", text + "\n\n", "h1")
+            elif style in ("code", "warn", "dim"):
+                box.insert("end", text + "\n", style)
+                box.insert("end", "\n")
+            else:
+                box.insert("end", text + "\n")
+        box.insert("end", "\n—— 帮助结束 ——\n", "dim")
+        box.configure(state="disabled")
+
+    # ================= 日志 =================
+    def _build_log(self):
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 2))
+        ctk.CTkLabel(bar, text="日志", font=self.FS,
+                     text_color=("#57606a", "#8a9299")).pack(side="left")
+        self.log_box = ctk.CTkTextbox(self, height=90, font=self.F)
+        self.log_box.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
+        self.log_box.configure(state="disabled")
+        # 同上：深浅背景下都可读的固定色
+        self.log_box.tag_config("err", foreground="#e5534b")
+        self.log_box.tag_config("warn", foreground="#bf8700")
+        self.log_box.tag_config("ok", foreground="#2da44e")
+
+    def log(self, msg, level="info"):
+        ts = datetime.datetime.now().strftime("%H:%M:%S")
+        tag = level if level in ("err", "warn", "ok") else None
+        self.log_box.configure(state="normal")
+        if tag:      # 不能传 None：tkinter 会把它当成名为 "None" 的标签
+            self.log_box.insert("end", f"[{ts}] {msg}\n", tag)
+        else:
+            self.log_box.insert("end", f"[{ts}] {msg}\n")
+        self.log_box.see("end")
+        self.log_box.configure(state="disabled")
+
+    # ================= 文件操作 =================
+    def load_file(self, path, confirm=True):
+        if confirm and self.data is not None:
+            if not mb.askyesno("确认", "重新加载将丢弃未保存的修改，继续？"):
+                return
+        try:
+            with open(path, "r", encoding="utf-8-sig") as fh:
+                text = fh.read()
+        except OSError as e:
+            self.log(f"读取失败：{e}", "err")
+            mb.showerror("读取失败", str(e))
+            return
+        try:
+            data = load_yaml_text(text)
+        except Exception as e:
+            msg = str(e)[:600]
+            self.log(f"YAML 解析失败：{msg}", "err")
+            mb.showerror("解析失败", f"YAML 解析失败：\n{msg}")
+            return
+        if not isinstance(data, dict):
+            mb.showerror("解析失败", "YAML 顶层必须是键值映射")
+            return
+        self.data = data
+        self.config_path = path
+        self.rules_sel = None
+        self._show_path(path)
+        self.refresh_all()
+        engine = "ruamel.yaml（保留注释）" if YAML_ENGINE == "ruamel" else "PyYAML（保存将丢失注释！）"
+        self.log(f"已加载：{path}")
+        self.log(f"订阅源 {len(data.get('proxy-providers') or {})} 个 ｜ "
+                 f"规则集 {len(data.get('rule-providers') or {})} 个 ｜ "
+                 f"代理组 {len(data.get('proxy-groups') or [])} 个 ｜ "
+                 f"分流规则 {len(data.get('rules') or [])} 条 ｜ YAML 引擎：{engine}")
+
+    def refresh_all(self):
+        # 全局设置
+        self.load_spec(self.data, GLOBAL_SPEC, self.global_fields)
+        # DNS
+        self.load_spec(self.data.get("dns") or {}, DNS_SPEC, self.dns_fields)
+        # 三个条目页
+        for tab in (self.provider_tab, self.rprovider_tab, self.group_tab):
+            tab.sel = None
+            tab.clear_form()
+            tab.refresh_list()
+        # 分流规则 / 原始 YAML
+        self._rule_clear_form()
+        self.refresh_rules()
+        self.raw_refresh()
+
+    def commit_all(self):
+        """把所有表单写回 self.data；任一校验失败抛 CommitError"""
+        pages = [("订阅源", self.provider_tab), ("规则集", self.rprovider_tab),
+                 ("代理组", self.group_tab)]
+        for title, tab in pages:
+            try:
+                tab.commit()
+            except CommitError as e:
+                raise CommitError(f"[{title}] {e}")
+        try:
+            self.apply_spec(self.data, GLOBAL_SPEC, self.global_fields)
+        except CommitError as e:
+            raise CommitError(f"[全局设置] {e}")
+        dns = self.data.setdefault("dns", {})
+        try:
+            self.apply_spec(dns, DNS_SPEC, self.dns_fields)
+        except CommitError as e:
+            raise CommitError(f"[DNS] {e}")
+
+    def on_save(self, save_as=False):
+        if self.data is None:
+            self.log("尚未加载配置，无法保存", "warn")
+            return
+        # 「原始YAML」页若有未应用的修改，先问清楚：直接保存会写回旧数据，用户的文本改动会白改
+        if self.raw_has_unapplied_edits():
+            ans = mb.askyesnocancel(
+                "原始YAML页有未应用的修改",
+                "「原始YAML」页的内容与当前配置不一致，还没点「把文本应用为当前配置」。\n\n"
+                "是：先把文本应用为当前配置，再保存\n"
+                "否：忽略文本里的修改，直接保存当前配置\n"
+                "取消：中止保存")
+            if ans is None:
+                self.log("已取消保存（原始YAML页有未应用的修改）", "warn")
+                return
+            if ans:
+                if not self.raw_apply(silent=True):
+                    self.log("原始 YAML 应用失败，保存中止", "err")
+                    return
+                self.log("已将原始 YAML 页的文本应用为当前配置", "ok")
+        try:
+            self.commit_all()
+        except CommitError as e:
+            self.log(f"保存取消：{e}", "err")
+            mb.showerror("保存取消", f"有字段未通过校验：\n{e}")
+            return
+        # 空规则会让 Clash 加载配置失败，保存前提醒（新建后忘了填写的情况）
+        blanks = [i + 1 for i, r in enumerate(self.rules_container() or [])
+                  if not str(r).strip()]
+        if blanks:
+            if not mb.askyesno(
+                    "存在空白规则",
+                    f"第 {'、'.join(map(str, blanks))} 条规则是空的，"
+                    f"空规则会让 Clash 加载配置失败。\n\n仍然保存吗？"):
+                self.log(f"已取消保存（第 {'、'.join(map(str, blanks))} 条为空规则）", "warn")
+                return
+        if save_as or not self.config_path:
+            path = fd.asksaveasfilename(
+                title="另存为", defaultextension=".yaml",
+                filetypes=[("YAML", "*.yaml *.yml"), ("所有文件", "*.*")])
+            if not path:
+                return
+        else:
+            path = self.config_path
+
+        if YAML_ENGINE == "pyyaml":
+            if not mb.askyesno(
+                    "警告",
+                    "未安装 ruamel.yaml，保存将丢失整个文件的注释。\n"
+                    "建议先执行：pip install ruamel.yaml\n\n仍要继续保存吗？"):
+                self.log("已取消保存（避免丢失注释）", "warn")
+                return
+
+        text = dump_yaml_text(self.data)
+        backed = ""
+        try:
+            existed = os.path.exists(path)
+            if self.backup_enabled and existed:
+                shutil.copy2(path, path + ".bak")
+                backed = f"（已备份原文件到 {os.path.basename(path)}.bak）"
+            elif existed and not self.backup_enabled:
+                backed = "（未备份，已直接覆盖原文件）"
+            with open(path, "w", encoding="utf-8", newline="") as fh:
+                fh.write(text)
+        except OSError as e:
+            self.log(f"写入失败：{e}", "err")
+            mb.showerror("写入失败", str(e))
+            return
+        self.config_path = path
+        self._show_path(path)
+        self.log(f"已保存：{path} {backed}", "ok")
+        self.raw_refresh()
+
+    def on_open(self):
+        if self.data is not None and not mb.askyesno(
+                "确认", "打开新文件将丢弃未保存的修改，继续？"):
+            return
+        path = fd.askopenfilename(
+            title="选择配置文件",
+            filetypes=[("YAML", "*.yaml *.yml"), ("所有文件", "*.*")])
+        if path:
+            self.load_file(path, confirm=False)
+
+    def on_reload(self):
+        if not self.config_path:
+            self.log("尚未加载任何文件", "warn")
+            return
+        self.load_file(self.config_path, confirm=True)
+
+
+def main():
+    app = ConfigEditorApp()
+    app.mainloop()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        err = traceback.format_exc()
+        try:
+            mb.showerror("启动失败", err)
+        except Exception:
+            pass
+        raise
