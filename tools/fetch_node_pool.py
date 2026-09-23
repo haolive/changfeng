@@ -251,7 +251,9 @@ def main():
         os.makedirs(d, exist_ok=True)
     with open(a.out, 'w', encoding='utf-8', newline='\n') as fh:
         fh.write(text)
-        yaml.safe_dump({'proxies': uniq}, fh, allow_unicode=True, sort_keys=False, width=4096)
+        # 用 Go 友好的 dumper：PyYAML 读进来再写出去会把清洗层加的引号弄丢
+        # （'062898e8' 这种值裸着写出去，mihomo 会按科学计数法读）
+        sp.dump_go_safe({'proxies': uniq}, fh)
 
     print('\n合并结果：%d 个源 → %d 个节点（去重 %d）；IPv6 字面量 %d 个' % (
         len(sources) - len(failed), len(uniq), dup, v6))

@@ -50,6 +50,9 @@ try:
 except ImportError:  # pragma: no cover
     sys.exit('需要 PyYAML：pip install pyyaml')
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import sanitize_provider as sp  # noqa: E402  （借它的 Go 友好 dumper：写出去的 YAML 不能把引号弄丢）
+
 
 def min_config(proxies, listeners=None):
     """测速用最小配置：不要 dns、不要 geo 规则，起得快。"""
@@ -74,7 +77,7 @@ def min_config(proxies, listeners=None):
 
 def write_config(path, cfg):
     with open(path, 'w', encoding='utf-8', newline='\n') as fh:
-        yaml.safe_dump(cfg, fh, allow_unicode=True, sort_keys=False, width=4096)
+        sp.dump_go_safe(cfg, fh)
     return path
 
 
@@ -235,24 +238,41 @@ def endpoint_key(node):
                         'ws-opts', 'grpc-opts', 'reality-opts')}, sort_keys=True, ensure_ascii=False)
 
 
-def download_speed(port, url, want_bytes, timeout):
-    """经本地 HTTP 代理（listener）下载，返回 (拿到字节, 秒)。"""
+def download_speed(port, urls, want_bytes, timeout):
+    """经本地 HTTP 代理（listener）下载，返回 (拿到字节, 秒, 用到的 url, 错误文本)。
+
+    多个 url 是"兜底"：某个 CDN 从节点出口不可达时（免费池里很常见），换一个再试；
+    只要读到过数据就不再换 —— 那属于"太慢"，不是"不通"。
+    """
     op = urllib.request.build_opener(urllib.request.ProxyHandler(
         {'http': 'http://127.0.0.1:%d' % port, 'https': 'http://127.0.0.1:%d' % port}))
-    t0 = time.monotonic()
-    got = 0
-    try:
-        with op.open(url, timeout=timeout) as r:
-            while got < want_bytes:
-                chunk = r.read(min(65536, want_bytes - got))
-                if not chunk:
-                    break
-                got += len(chunk)
-                if time.monotonic() - t0 > timeout:
-                    break
-    except Exception:  # noqa: BLE001
-        pass
-    return got, time.monotonic() - t0
+    last_err = ''
+    for url in urls:
+        t0 = time.monotonic()
+        got = 0
+        try:
+            with op.open(url, timeout=timeout) as r:
+                while got < want_bytes:
+                    chunk = r.read(min(65536, want_bytes - got))
+                    if not chunk:
+                        break
+                    got += len(chunk)
+                    if time.monotonic() - t0 > timeout:
+                        break
+            if got:
+                return got, time.monotonic() - t0, url, ''
+        except Exception as e:  # noqa: BLE001
+            last_err = '%s: %s' % (type(e).__name__, re.sub(r'\s+', ' ', str(e))[:60])
+    return 0, 0.0, urls[0], last_err or '没读到数据'
+
+
+def speed_fail_kinds(speed_fail):
+    """把测速失败明细归成"几类"，好看日志（同一个原因只算一类）。"""
+    kinds = {}
+    for kind, detail in speed_fail.values():
+        key = kind if kind == '速度不足' else '%s(%s)' % (kind, detail[:48])
+        kinds[key] = kinds.get(key, 0) + 1
+    return kinds
 
 
 def build_output_config(template_path, nodes, header):
@@ -269,8 +289,7 @@ def build_output_config(template_path, nodes, header):
         out[k] = v
     if not inserted:
         out['proxies'] = nodes
-    body = yaml.safe_dump(out, allow_unicode=True, sort_keys=False, width=4096, default_flow_style=False)
-    return header + body
+    return header + sp.dump_go_safe(out)
 
 
 def main():
@@ -289,8 +308,12 @@ def main():
                     help='延迟测试地址（与客户端健康检查一致）')
     ap.add_argument('--latency-timeout', type=int, default=3000, help='单个节点的延迟测试超时（毫秒）')
     ap.add_argument('--max-latency', type=int, default=2000, help='延迟超过这个值就不要了（毫秒）')
-    ap.add_argument('--speed-url', default='https://speed.cloudflare.com/__down?bytes={bytes}',
-                    help='测速下载地址，{bytes} 会被替换成测试块大小')
+    ap.add_argument('--speed-url', default='https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb',
+                    help='测速下载地址（默认用 Google CDN 的大文件：延迟轮也是 Google 家族的地址，'
+                         '能通 gstatic 的节点基本都能通它；{bytes} 会被替换成测试块大小）')
+    ap.add_argument('--speed-url-fallback', action='append', default=None,
+                    help='第一个地址不可达（一个字节都没读到）时换它再试。可重复指定；'
+                         '传空字符串可关掉兜底（不传则默认用 Cloudflare 的测速端点）')
     ap.add_argument('--speed-bytes', type=int, default=512 * 1024, help='测速下载的字节数')
     ap.add_argument('--speed-timeout', type=float, default=10.0, help='测速下载的超时（秒）')
     ap.add_argument('--min-speed-kbps', type=float, default=100.0, help='低于这个速度就不要了（KB/s）')
@@ -386,10 +409,18 @@ def main():
         core.stop()
         alive = len(latency)
         print('延迟轮结束：%d/%d 可用，用时 %.0fs' % (alive, len(alias_nodes), time.time() - t0))
+        dtype = {}
+        for why in failed_reason.values():
+            k = (why.split(' ')[0] or '未知')[:40]
+            dtype[k] = dtype.get(k, 0) + 1
+        if dtype:
+            print('  未通过原因：%s' % '；'.join('%s ×%d' % kv for kv in
+                                              sorted(dtype.items(), key=lambda kv: -kv[1])[:6]))
         if alive == 0:
             print('一个都没活下来 —— 内核日志尾部：\n%s' % core.log_tail())
     else:
         alive = 0
+        dtype = {}
 
     too_slow = [al for al, dl in latency.items() if dl > a.max_latency]
     ok_latency = {al: dl for al, dl in latency.items() if dl <= a.max_latency}
@@ -397,7 +428,7 @@ def main():
 
     # ---- 第二轮：下载测速 -----------------------------------------------------
     speed_pool = sorted(ok_latency, key=lambda al: ok_latency[al])[:a.speed_limit]
-    speed, speed_fail = {}, {}
+    speed, speed_fail, urls = {}, {}, []
     if speed_pool:
         port_base = 21000
         listeners, ports = [], {}
@@ -416,28 +447,36 @@ def main():
             core.stop()
             return 1
         url = a.speed_url.format(bytes=a.speed_bytes)
+        fb = a.speed_url_fallback if a.speed_url_fallback is not None \
+            else ['https://speed.cloudflare.com/__down?bytes={bytes}']
+        urls = [url] + [u.format(bytes=a.speed_bytes) for u in fb if u.strip()]
         _port_open(ports[speed_pool[0]])            # 先等第一个 listener 就绪（带重试）
         not_listening = [al for al in speed_pool if not _port_open(ports[al], retries=1)]
         for al in not_listening:
-            speed_fail[al] = 'listener 未就绪'
+            speed_fail[al] = ('listener 未就绪', '')
         todo = [al for al in speed_pool if al not in speed_fail]
         t0 = time.time()
         with ThreadPoolExecutor(max_workers=max(8, a.concurrency // 2)) as ex:
-            futs = {ex.submit(download_speed, ports[al], url, a.speed_bytes, a.speed_timeout): al for al in todo}
+            futs = {ex.submit(download_speed, ports[al], urls, a.speed_bytes, a.speed_timeout): al for al in todo}
             done = 0
             for f in as_completed(futs):
                 al = futs[f]
-                got, dt = f.result()
+                got, dt, used, err = f.result()
                 done += 1
                 if done % 100 == 0:
                     print('  %d/%d，已用 %.0fs' % (done, len(futs), time.time() - t0))
                 kbps = got / dt / 1024.0 if dt > 0 else 0.0
                 if got >= a.speed_bytes and kbps >= a.min_speed_kbps:
                     speed[al] = round(kbps, 1)
+                elif got:
+                    speed_fail[al] = ('速度不足', '%.0f KB/s' % kbps)
                 else:
-                    speed_fail[al] = ('速度不足 %.0f KB/s' % kbps) if got else '下载失败'
+                    speed_fail[al] = ('下载失败', err)
         core.stop()
         print('测速轮结束：%d/%d 合格，用时 %.0fs' % (len(speed), len(speed_pool), time.time() - t0))
+        if speed_fail:
+            print('  未通过原因：%s' % '；'.join('%s ×%d' % kv for kv in
+                                              sorted(speed_fail_kinds(speed_fail).items(), key=lambda kv: -kv[1])[:6]))
 
     # ---- 汇总与去重 -----------------------------------------------------------
     scored = sorted(speed, key=lambda al: (ok_latency[al], -speed[al]))
@@ -475,7 +514,7 @@ def main():
     if a.nodes_out:
         with open(a.nodes_out, 'w', encoding='utf-8', newline='\n') as fh:
             fh.write(nodes_header)
-            yaml.safe_dump({'proxies': final_nodes}, fh, allow_unicode=True, sort_keys=False, width=4096)
+            sp.dump_go_safe({'proxies': final_nodes}, fh)
         print('写出 %s' % a.nodes_out)
     if a.out:
         best_header = ('# 由 tools/test_nodes.py 自动生成，请勿手工编辑（改动会被下次定时任务覆盖）。\n'
@@ -501,19 +540,18 @@ def main():
             pool_stats = json.load(open(a.pool_stats, 'r', encoding='utf-8'))
         except Exception:  # noqa: BLE001
             pool_stats = {}
-    dtype = {}
-    for al, why in failed_reason.items():
-        dtype[why.split(' ')[0]] = dtype.get(why.split(' ')[0], 0) + 1
+    sf_kinds = speed_fail_kinds(speed_fail)
     drop_reasons = dict(pool_stats.get('dropped_reasons', {}))
     if failed_reason:
         drop_reasons['延迟测试失败'] = len(failed_reason)
     if too_slow:
         drop_reasons['延迟过高'] = len(too_slow)
-    if speed_fail:
-        n_slow = sum(1 for v in speed_fail.values() if v.startswith('速度不足'))
-        drop_reasons['速度不足'] = n_slow
-        if len(speed_fail) - n_slow:
-            drop_reasons['下载失败'] = len(speed_fail) - n_slow
+    if sf_kinds:
+        n_slow = sf_kinds.get('速度不足', 0)
+        if n_slow:
+            drop_reasons['速度不足'] = n_slow
+        if sum(sf_kinds.values()) - n_slow:
+            drop_reasons['下载失败'] = sum(sf_kinds.values()) - n_slow
     if v6_dropped:
         drop_reasons['IPv6 无出口'] = len(v6_dropped)
     if prune_drops:
@@ -532,9 +570,9 @@ def main():
         'latency': {'tested': len(alias_nodes), 'url': a.latency_url, 'timeout_ms': a.latency_timeout,
                     'max_ms': a.max_latency, 'passed': len(ok_latency),
                     'failure_kinds': dtype},
-        'speed': {'tested': len(speed_pool), 'url': a.speed_url, 'bytes': a.speed_bytes,
+        'speed': {'tested': len(speed_pool), 'url': a.speed_url, 'urls': urls, 'bytes': a.speed_bytes,
                   'min_kbps': a.min_speed_kbps, 'timeout_s': a.speed_timeout, 'limit': a.speed_limit,
-                  'passed': len(speed)},
+                  'passed': len(speed), 'failure_kinds': sf_kinds},
         'ipv6': {'literals': len(v6_nodes), 'test_host_has_ipv6': test_host_has_v6,
                  'policy': a.ipv6_policy, 'kept_untested': len(v6_kept), 'dropped': len(v6_dropped)},
         'max_nodes': a.max_nodes,

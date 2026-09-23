@@ -49,8 +49,9 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
 |---|---|---|
 | `--latency-url` / `--latency-timeout` | gstatic 204 / 3000ms | 延迟测试地址与客户端健康检查一致，超时即淘汰 |
 | `--max-latency` | 2000ms | 延迟超过就淘汰 |
-| `--speed-bytes` / `--speed-timeout` | 512KB / 10s | 每个存活节点真下 512KB（speed.cloudflare.com） |
-| `--min-speed-kbps` | 100 KB/s | 下载速度低于就淘汰 |
+| `--speed-url` / `--speed-url-fallback` | Google CDN 大文件 / Cloudflare speed | 下载测速目标。主目标跟延迟轮同属 Google（能通 gstatic 的节点基本都能通它）；主目标**一个字节都读不到**时才换兜底 |
+| `--speed-bytes` / `--speed-timeout` | 512KB / 10s | 每个存活节点真下 512KB |
+| `--min-speed-kbps` | 100 KB/s | 下载速度低于就淘汰（"速度不足"和"下载失败"分开记，日志里能看到各占多少） |
 | `--speed-limit` | 800 | 只给延迟最好的 800 个做下载测速（流量与时间可控） |
 | `--max-nodes` | 600 | 最终订阅最多 600 个节点（按延迟从好到差排） |
 | `--min-keep` | 100 | 存活少于 100 个就**判失败、不发布**（release 里保住上一版） |

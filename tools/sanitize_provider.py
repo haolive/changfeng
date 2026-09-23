@@ -116,6 +116,34 @@ def go_resolve(raw):
     return 'str'
 
 
+# ---------------------------------------------------------------- 写出去的 YAML 也要防同一个坑
+
+class GoSafeDumper(yaml.SafeDumper):
+    """safe_dump 时给"Go 会当数字/布尔/null"的字符串强制加引号。
+
+    为什么要单独一个 Dumper：fix_styles() 只修**从上游读进来的那棵树**；而流水线里
+    节点会被 PyYAML 读成普通 dict 再重新落盘（合并、改名前缀、写测速配置、写产物），
+    这一读一写就会把引号弄丢 —— Python 觉得 '062898e8' 是字符串所以裸着写，
+    Go 的 yaml.v3 却按科学计数法读成 6.2898e12，于是：
+        invalid REALITY short ID / 密码对不上 / 端口变成别的东西
+    用这个 Dumper，写出去的文件和上游清洗过的版本一样安全。
+    """
+
+
+def _go_safe_str(dumper, data):
+    return dumper.represent_scalar('tag:yaml.org,2002:str', data,
+                                   style='"' if go_resolve(data) != 'str' else None)
+
+
+GoSafeDumper.add_representer(str, _go_safe_str)
+
+
+def dump_go_safe(data, stream=None):
+    """safe_dump 的 Go 友好版（其余参数按本项目习惯固定）。"""
+    return yaml.dump(data, stream, Dumper=GoSafeDumper, allow_unicode=True,
+                     sort_keys=False, width=4096, default_flow_style=False)
+
+
 # ---------------------------------------------------------------- 节点校验
 
 def b64url_len(text):
@@ -467,6 +495,12 @@ def selftest():
     seg3 = out.split('name: fp-unsafe-plain')[1]
     if 'client-fingerprint: chrome' not in seg3:
         fails.append('写了未知指纹的普通节点也应改成 chrome（消除内核告警）')
+    # dump_go_safe：PyYAML 读进来再写出去时也得保住引号（流水线里会往返好几轮）
+    dumped = dump_go_safe({'proxies': [{'name': '1', 'type': 'ss', 'port': 8388,
+                                        'password': '08', 'short-id': '062898e8'}]})
+    for expect in ['password: "08"', 'short-id: "062898e8"', 'name: "1"']:
+        if expect not in dumped:
+            fails.append('dump_go_safe 没给陷阱标量加引号（缺 %r）：\n%s' % (expect, dumped))
     print('selftest 输出：')
     print(out)
     print('stats:', json.dumps(stats, ensure_ascii=False, indent=2))
