@@ -61,6 +61,8 @@ jobs:
             --out dist/pool.yaml \
             --stats dist/pool-stats.json
 
+      # ⚠ 两个 tag 的资产名都必须是 best.yaml / nodes.yaml（客户端订阅地址指着它们），
+      #   所以各自放在子目录里产出、再整目录上传（gh release upload 用的是文件名）。
       - name: 逐个测速（延迟 + 下载），同时产出 best 与 fast
         run: |
           set -euo pipefail
@@ -68,12 +70,12 @@ jobs:
             --pool dist/pool.yaml \
             --config 多订阅合并配置.yaml \
             --core ./mihomo \
-            --out dist/best.yaml \
-            --nodes-out dist/nodes.yaml \
-            --notes dist/best-notes.md \
-            --fast-out dist/fast.yaml \
-            --fast-nodes-out dist/fast-nodes.yaml \
-            --fast-notes dist/fast-notes.md \
+            --out dist/best/best.yaml \
+            --nodes-out dist/best/nodes.yaml \
+            --notes dist/best/notes.md \
+            --fast-out dist/fast/best.yaml \
+            --fast-nodes-out dist/fast/nodes.yaml \
+            --fast-notes dist/fast/notes.md \
             --fast-types "http,anytls" \
             --stats dist/filter-stats.json \
             --pool-stats dist/pool-stats.json \
@@ -102,8 +104,8 @@ jobs:
               "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/$f" || ok=0
           done
           if [ "$ok" = "1" ]; then
-            ./mihomo -t -f dist/best.yaml -d "$geodir"
-            ./mihomo -t -f dist/fast.yaml -d "$geodir"
+            ./mihomo -t -f dist/best/best.yaml -d "$geodir"
+            ./mihomo -t -f dist/fast/best.yaml -d "$geodir"
             echo "产物通过内核校验"
           else
             echo "::warning::geo 数据没拉全，跳过 mihomo -t 校验（与产物本身无关）"
@@ -116,14 +118,14 @@ jobs:
         run: |
           set -euo pipefail
           gh release view best >/dev/null 2>&1 || gh release create best \
-            --title "best（测速过滤后的订阅）" --notes-file dist/best-notes.md
-          gh release upload best dist/best.yaml dist/nodes.yaml --clobber
-          gh release edit best --notes-file dist/best-notes.md
+            --title "best（测速过滤后的订阅）" --notes-file dist/best/notes.md
+          gh release upload best dist/best/best.yaml dist/best/nodes.yaml --clobber
+          gh release edit best --notes-file dist/best/notes.md
 
           gh release view fast >/dev/null 2>&1 || gh release create fast \
-            --title "fast（优先订阅）" --notes-file dist/fast-notes.md
-          gh release upload fast dist/fast.yaml dist/fast-nodes.yaml --clobber
-          gh release edit fast --notes-file dist/fast-notes.md
+            --title "fast（优先订阅）" --notes-file dist/fast/notes.md
+          gh release upload fast dist/fast/best.yaml dist/fast/nodes.yaml --clobber
+          gh release edit fast --notes-file dist/fast/notes.md
 
           echo "已更新 https://github.com/${{ github.repository }}/releases/download/best/best.yaml"
           echo "已更新 https://github.com/${{ github.repository }}/releases/download/fast/best.yaml"

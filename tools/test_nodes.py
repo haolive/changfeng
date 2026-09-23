@@ -415,7 +415,8 @@ def main():
     if a.dns_doh:
         print('测试内核使用 DoH DNS：%s' % ', '.join(a.dns_doh))
 
-    for p in (a.core_log, a.out, a.nodes_out, a.stats, a.notes):
+    for p in (a.core_log, a.out, a.nodes_out, a.stats, a.notes,
+              a.fast_out, a.fast_nodes_out, a.fast_notes):
         ensure_dir(p)
     open(a.core_log, 'w', encoding='utf-8').close()     # 每次运行清空
 
