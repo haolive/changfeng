@@ -55,8 +55,24 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sanitize_provider as sp  # noqa: E402  （借它的 Go 友好 dumper：写出去的 YAML 不能把引号弄丢）
 
 
-def min_config(proxies, listeners=None):
-    """测速用最小配置：不要 dns、不要 geo 规则，起得快。"""
+def dns_block(servers, ipv6=True):
+    """给测试配置写 dns 段。
+
+    默认**不启用 DNS**（mihomo 直接用系统解析器）—— 在境外 runner 上没问题。
+    但在国内本机跑的时候，系统 DNS 对 Google/Cloudflare 这类域名可能给出被污染的结果，
+    于是 mihomo 会把错的 IP 交给节点去连 → 好节点也被判死。
+    所以本机跑建议用 `--dns-doh https://doh.pub/dns-query --dns-doh https://dns.alidns.com/dns-query`
+    （和客户端配置一致），这样测试目标和流水线完全一样，只有**测速点**不同。
+    """
+    if not servers:
+        return {'enable': False}
+    return {'enable': True, 'ipv6': ipv6, 'enhanced-mode': 'normal',
+            'nameserver': list(servers),
+            'default-nameserver': ['223.5.5.5', '119.29.29.29']}
+
+
+def min_config(proxies, listeners=None, dns=None):
+    """测速用最小配置：不要 geo 规则，起得快。"""
     cfg = {
         'log-level': 'warning',
         'mode': 'rule',
@@ -67,7 +83,7 @@ def min_config(proxies, listeners=None):
         'unified-delay': True,        # 与客户端配置一致，阈值才有可比性
         'tcp-concurrent': True,
         'find-process-mode': 'off',
-        'dns': {'enable': False},     # 目标域名交给节点侧解析，测试机不需要 DNS
+        'dns': dns or {'enable': False},
         'proxies': proxies,
         'rules': ['MATCH,DIRECT'],
     }
@@ -134,10 +150,10 @@ def prune_bad_nodes(core, nodes, workdir, max_drop=50):
 class Core:
     """临时 mihomo 实例：起进程 + 调 API（用完必须 stop）。"""
 
-    def __init__(self, core, proxies, listeners, log_path, start_timeout=60):
+    def __init__(self, core, proxies, listeners, log_path, dns=None, start_timeout=60):
         self.core, self.log_path = core, log_path
         self.home = tempfile.mkdtemp(prefix='node-test-')
-        cfg = min_config(proxies, listeners)
+        cfg = min_config(proxies, listeners, dns)
         self.ctrl = int(cfg['external-controller'].rsplit(':', 1)[1])
         self.secret = cfg['secret']
         self.cfg_path = write_config(os.path.join(self.home, 'config.yaml'), cfg)
@@ -166,28 +182,40 @@ class Core:
         except Exception as e:  # noqa: BLE001
             return 0, repr(e)
 
-    def delay(self, alias, url, timeout_ms):
-        """返回 (延迟ms, 失败原因)。"""
-        q = urllib.parse.urlencode({'url': url, 'timeout': timeout_ms})
-        st, body = self.api('/proxies/%s/delay?%s' % (urllib.parse.quote(alias, safe=''), q),
-                            timeout=timeout_ms / 1000.0 + 20)
-        if st == 200:
+    def delay(self, alias, url, timeout_ms, retries=2):
+        """返回 (延迟ms, 失败原因)。
+
+        `st == 0` 表示**连本地内核的 HTTP 都没连上**（本机防火墙/杀软/端口紧张时会被 RST），
+        这跟节点好坏无关，重试几次再说 —— 否则本机跑出来的"可用率"会被这种抖动严重低估
+        （实测一次 5872 节点的本机运行里，有 815 条是这种本地 RST）。
+        """
+        last = ''
+        for i in range(retries + 1):
+            q = urllib.parse.urlencode({'url': url, 'timeout': timeout_ms})
+            st, body = self.api('/proxies/%s/delay?%s' % (urllib.parse.quote(alias, safe=''), q),
+                                timeout=timeout_ms / 1000.0 + 20)
+            if st == 200:
+                try:
+                    j = json.loads(body)
+                    if isinstance(j, dict) and 'delay' in j:
+                        return int(j['delay']), ''
+                except ValueError:
+                    pass
             try:
-                j = json.loads(body)
-                if isinstance(j, dict) and 'delay' in j:
-                    return int(j['delay']), ''
+                msg = json.loads(body).get('message', body)
             except ValueError:
-                pass
-        try:
-            msg = json.loads(body).get('message', body)
-        except ValueError:
-            msg = body
-        msg = re.sub(r'\s+', ' ', str(msg))[:60]
-        if 'timeout' in msg.lower():
-            msg = '超时'
-        elif 'error occurred in the delay test' in msg:
-            msg = '连接失败'
-        return None, msg or ('HTTP %s' % st)
+                msg = body
+            msg = re.sub(r'\s+', ' ', str(msg))[:60]
+            if 'timeout' in msg.lower():
+                msg = '超时'
+            elif 'error occurred in the delay test' in msg:
+                msg = '连接失败'
+            msg = msg or ('HTTP %s' % st)
+            if st != 0:
+                return None, msg        # 内核给了明确答复（超时/连接失败）→ 是节点的问题
+            last = msg
+            time.sleep(0.3 * (i + 1))
+        return None, '本地内核 API 连不上（%s）' % last
 
     def log_tail(self, lines=25):
         try:
@@ -341,6 +369,10 @@ def main():
     ap.add_argument('--concurrency', type=int, default=64, help='并发数（延迟轮）')
     ap.add_argument('--min-keep', type=int, default=100, help='活下来的节点少于这个数就判失败（不发布）')
     ap.add_argument('--limit', type=int, help='只测前 N 个节点（本机冒烟用）')
+    ap.add_argument('--dns-doh', action='append', default=None,
+                    help='给测试用的内核配上 DoH DNS（可重复指定，如 --dns-doh https://doh.pub/dns-query）。'
+                         '默认不启用 DNS（用系统解析器）：境外 runner 上没问题，但国内本机跑时系统 DNS 可能'
+                         '给出被污染的解析结果，好节点会被冤枉，建议本机跑时配上和客户端一致的 DoH')
     ap.add_argument('--ipv6-policy', choices=['keep', 'drop'], default='keep',
                     help='测试机没有 IPv6 时，IPv6 字面量节点怎么办：keep=原样保留（默认，不冤枉好节点）/ drop=删掉')
     a = ap.parse_args()
@@ -354,6 +386,9 @@ def main():
     if a.limit:
         nodes = nodes[:a.limit]
     print('节点池 %d 个' % len(nodes))
+    dns_cfg = dns_block(a.dns_doh)
+    if a.dns_doh:
+        print('测试内核使用 DoH DNS：%s' % ', '.join(a.dns_doh))
 
     for p in (a.core_log, a.out, a.nodes_out, a.stats, a.notes):
         ensure_dir(p)
@@ -406,7 +441,7 @@ def main():
     failed_reason = {}
     if alias_nodes:
         print('\n延迟轮：%d 个节点，超时 %dms，并发 %d' % (len(alias_nodes), a.latency_timeout, a.concurrency))
-        core = Core(a.core, alias_nodes, None, a.core_log)
+        core = Core(a.core, alias_nodes, None, a.core_log, dns=dns_cfg)
         if not core.ready:
             print('内核启动失败：\n%s' % core.log_tail())
             core.stop()
@@ -460,7 +495,7 @@ def main():
             port_base += 1
         print('\n测速轮：%d 个节点，每节点下 %dKB，限时 %.0fs，低于 %.0f KB/s 淘汰' % (
             len(speed_pool), a.speed_bytes // 1024, a.speed_timeout, a.min_speed_kbps))
-        core = Core(a.core, [n for n in alias_nodes if n['name'] in ports], listeners, a.core_log)
+        core = Core(a.core, [n for n in alias_nodes if n['name'] in ports], listeners, a.core_log, dns=dns_cfg)
         if not core.ready:
             print('内核启动失败：\n%s' % core.log_tail())
             core.stop()

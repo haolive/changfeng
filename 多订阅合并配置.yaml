@@ -306,7 +306,7 @@ proxy-groups:
     default-selected: 自动选择
     url: "https://www.gstatic.com/generate_204"
     interval: 300
-    timeout: 3000
+    timeout: 5000
     lazy: true
     icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/adjust.svg"
   - name: 自动选择
@@ -316,7 +316,9 @@ proxy-groups:
     tolerance: 50
     url: "https://www.gstatic.com/generate_204"
     interval: 300
-    timeout: 2000            # 调小：死节点探测更快失败，选举切换更快
+    timeout: 5000            # 2026-09-23 从 2000 放宽：国内链路慢，"能用但握手要 3~8 秒"的节点
+                             # 会被 2 秒超时全冤枉掉（实测客户端当时在用的那个节点 curl 要 8.3 秒）。
+                             # url-test 只会挑响应最快的那个，所以放宽 = 多一批候选，不会变慢。
     max-failed-times: 2      # 调小：少给一次机会，坏节点下台更快
     # lazy 已移除（默认 false）：主动按 interval 做健康检查。
     # 原来 lazy: true 时日志会打「failed multiple times, activate health check」——
@@ -327,7 +329,7 @@ proxy-groups:
     include-all: true
     url: "https://www.gstatic.com/generate_204"
     interval: 300
-    timeout: 3000
+    timeout: 5000
     lazy: true
     icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/guard.svg"
   - name: 负载均衡
@@ -337,7 +339,8 @@ proxy-groups:
     # exclude-filter: "^S4"   # 应急备用：同「自动选择」，需要时一并打开
     url: "https://www.gstatic.com/generate_204"
     interval: 300
-    timeout: 3000            # 保持宽松：负载均衡是"分摊"不是"选最快"，过度超时淘汰会白丢节点
+    timeout: 5000            # 保持宽松：负载均衡是"分摊"不是"选最快"，过度超时淘汰会白丢节点
+                             # （2026-09-23 从 3000 放宽到 5000，理由同「自动选择」）
     max-failed-times: 3
     lazy: true
     icon: "https://fastly.jsdelivr.net/gh/clash-verge-rev/clash-verge-rev.github.io@main/docs/assets/icons/balance.svg"

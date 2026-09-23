@@ -102,6 +102,20 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
    （日志里全是 `context deadline exceeded`），而不是节点本身不能用。换成 `dl.google.com`
    的大文件（与延迟轮的 gstatic 同属 Google）后同一批节点 **761/800 通过**。
    所以：**测速目标要挑"节点出口普遍能到"的家**；主目标一个字节都读不到时才会去试 CF 兜底。
+8. **客户端里为什么一堆超时**（2026-09-23 实测）：两件事叠在一起 ——
+   ① 免费池的服务器**大部分从国内连不上**（同一份 602 个节点：境外看 18% 服务器 TCP 可达，
+   国内直连实测也只有 111/602 能连上，且这些还只是 TCP 层）；
+   ② **客户端的健康检查超时太紧**：拿客户端当时正在用的节点验证，`curl` 经它访问国内站
+   **8.3 秒**才返回 200 —— 而配置里 `自动选择` 组的 `timeout` 是 2000ms，测速轮 3 秒，
+   于是"慢但能用"的节点在界面上全被标成超时、也不会被 `自动选择` 挑中。
+   所以配合这份订阅，客户端的组超时建议放宽（`timeout: 5000` 起步）；
+   想让"看到的确实都能用"，就用上面的 `tools/local_cn_filter.py` 在本机筛一遍。
+9. **CF 优选 IP 试过了、没用（别再折腾）**：拿 `stock.hostmonit.com` / `api.hostmonit.com`
+   的国内优选 CF IP（52~161ms、0% 丢包）跟池子里的 CF 前置节点做对照实验
+   （同一份节点配置，一半保留原 `server`、一半换成优选 IP，成对比较）：
+   两组**同样是全灭** —— 说明卡住这些免费节点的不是"连到哪个 CF 边缘 IP"，
+   而是节点配置本身已过期/伪装域名在墙内被阻断。优选 IP 的正确用途是
+   **自己的 CF 加速域名/自建节点挑 IP**，对上游免费池没用。
 
 ## 排查
 
@@ -111,24 +125,40 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
   所以看到 workflow 红了一次不用慌，看日志定位就行。
 - 想看"现在到底哪些节点活着"，直接把 release 的 `best.yaml` 下下来看 `proxies:` 段（按延迟排序）。
 
-## 本机自测（可选）
+## 本机自测 / 本机筛节点（国内网络）
+
+**想要"客户端里看到的确实都能用"，只能用本机网络测一遍** —— 仓库那条流水线在境外机房，
+它量不到「你 → 节点」这一跳。为此有个一键脚本：
 
 ```powershell
-# 1) 用客户端缓存离线合并（不联网），先看合并/清洗/去重结果
-& "D:\ProgramFiles\install\Python311\python.exe" tools\fetch_node_pool.py `
-    --config 多订阅合并配置.yaml --out dist\pool.yaml --stats dist\pool-stats.json `
-    --cache "$env:APPDATA\io.github.clash-verge-rev.clash-verge-rev\providers"
+# 候选 = release 里那份 best.yaml（流水线筛过"全球活着"的），用本机网络实测一遍
+& "D:\ProgramFiles\install\Python311\python.exe" tools\local_cn_filter.py `
+    --repo "E:\Users\Documents\Python\changfeng-repo"
 
-# 2) 本机测速（用你自己的网络口味筛）
-& "D:\ProgramFiles\install\Python311\python.exe" tools\test_nodes.py `
-    --pool dist\pool.yaml --config 多订阅合并配置.yaml `
-    --core "D:\ProgramFiles\Portable\科学\Clash.Verge\verge-mihomo.exe" `
-    --out dist\best.yaml --nodes-out dist\nodes.yaml --stats dist\filter-stats.json `
-    --limit 300 --min-keep 1
+# 候选换成 10 个源合并的完整池子（慢很多，但可能捞出流水线没留的节点）
+& "...\python.exe" tools\local_cn_filter.py --full
+
+# 只测前 300 个（冒烟）
+& "...\python.exe" tools\local_cn_filter.py --limit 300
 ```
 
-`--limit 300` 只测池子里前 300 个（冒烟用，几分钟内出结果）；去掉就是全量。
-本机测速的阈值可以直接用默认值，也可以按国内网络口味收紧（比如 `--max-latency 1200`）。
+产物在 `_cn_filter\best-cn.yaml`（完整配置，Verge 里「导入本地配置」）和 `nodes-cn.yaml`。
+加 `--publish` 可以把节点清单发成 release 资产 `best-cn.yaml`（需要 `GITHUB_TOKEN` 环境变量）。
+
+> 脚本内部已经处理了两件容易踩的事：
+> 1. **DoH DNS**（`--dns-doh doh.pub / alidns`）：国内系统 DNS 对 Google/CF 域名可能给出被污染的结果，
+>    配上 DoH 后就能用**和流水线一样的目标**（gstatic / Google CDN），只有测速点不同。
+> 2. **超时放宽到 8 秒**：实测国内能用的节点，握手也可能要 3~8 秒（拿客户端正在用的那个节点
+>    用 curl 验证：8.3 秒才返回 200）。用流水线那套 3 秒超时，好节点会被全部冤枉掉。
+
+手工跑 `tools/test_nodes.py` 也可以，记得带上 `--dns-doh https://doh.pub/dns-query`、
+`--latency-timeout 8000 --max-latency 10000`，并发别开太大（`--concurrency 24` 左右，
+本机跑大了会把自家带宽占满、连本地内核的 API 都会被 RST）。
+
+> **国内本机跑的通过率天然很低**：2026-09-23 实测，同一份 5872 个节点的池子，
+> 境外 runner 有 1062 个通过延迟轮，国内本机只有十几个（0.2%）——
+> 免费池的服务器绝大多数**从国内连不上**。所以本机筛出来的清单很短是正常的（短但准）；
+> 免费池本来每小时都在换，清单短不影响用，下一次再跑就是了。
 
 ## 保活（和 s8 那条一样的坑）
 
