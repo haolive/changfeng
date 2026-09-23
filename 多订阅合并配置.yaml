@@ -142,7 +142,7 @@ proxy-providers:
   s8-ai-crawler-v2:
     type: http
     path: ./providers/s8_aicrawler.yaml
-    url: https://github.boki.moe/https://raw.githubusercontent.com/Barabama/FreeNodes/refs/heads/feat/ai-crawler-v2/nodes/merged.yaml
+    url: https://seep.eu.org/https://raw.githubusercontent.com/Barabama/FreeNodes/refs/heads/feat/ai-crawler-v2/nodes/merged.yaml
     interval: 3600
     proxy: DIRECT
     health-check:
