@@ -66,7 +66,9 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
    想按国内网络的口味筛，在本机跑 `tools/test_nodes.py`（见下），两者不冲突。
 2. **IPv6 节点**：runner 没有 IPv6 出口，IPv6 字面量地址的节点在那边测不了。
    默认 `--ipv6-policy keep`：跳过测速、原样保留（不冤枉好节点）；如果你本机没有 IPv6、
-   想让它们彻底消失，改成 `drop`。（当前池子里 IPv6 字面量只有个位数，影响很小。）
+   想让它们彻底消失，改成 `drop`。（实测整池 5845 个节点里只有 **2** 个真 IPv6 字面量，
+   影响可以忽略。注意判断用的是 `ipaddress`：免费池里有 `server` 写成 `用户@主机:443?参数`
+   的垃圾节点也含冒号，那种必须照常测速淘汰，不能当 IPv6 放过去。）
 3. **内核预检自愈**：mihomo 解析 inline proxies 时，遇到字段缺失/非法的节点不是跳过它，
    而是**整体拒绝整个配置**（`Parse config error: proxy 2: '' has unset fields: cipher`）——
    一个坏节点能让 6000 个节点全进不了内核。`tools/sanitize_provider.py` 的规则覆盖不到
@@ -78,6 +80,11 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
 6. **下载测速用的是 listeners**：给每个存活节点开一个本机 HTTP 入站（`proxy:` 绑定到该节点），
    再经它真下 512KB。这是唯一能区分"能握手但传不动"（免费池里很常见）的方法 ——
    mihomo 的 delay 接口只量首字节耗时，不是带宽。
+7. **为什么测速目标选 Google CDN（第一次跑踩的坑）**：最初用 `speed.cloudflare.com`，
+   在 runner 上实测 **800 个存活节点 0 个通过** —— 那些节点的出口连 Cloudflare 普遍超时
+   （日志里全是 `context deadline exceeded`），而不是节点本身不能用。换成 `dl.google.com`
+   的大文件（与延迟轮的 gstatic 同属 Google）后同一批节点 **761/800 通过**。
+   所以：**测速目标要挑"节点出口普遍能到"的家**；主目标一个字节都读不到时才会去试 CF 兜底。
 
 ## 排查
 
