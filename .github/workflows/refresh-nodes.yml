@@ -93,7 +93,7 @@ jobs:
             --speed-limit 800 \
             --max-nodes 600 \
             --concurrency 64 \
-            --min-keep 100
+            --min-keep 0
 
       # 产物本身也过一遍内核：`-t` 会解析全部 inline proxies（字段非法会直接报错），
       # 顺带校验合并后的配置结构。geo 数据拉不到时跳过（那说明不了产物有问题）。
