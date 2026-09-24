@@ -83,6 +83,7 @@ jobs:
             --stats dist/filter-stats.json \
             --pool-stats dist/pool-stats.json \
             --core-log dist/core.log \
+            --latency-url "http://www.gstatic.com/generate_204" \
             --latency-timeout 3000 \
             --max-latency 2000 \
             --speed-url "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" \
