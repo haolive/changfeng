@@ -7,8 +7,10 @@
 起一个**临时** mihomo 实例（隔离的 home 目录 + 空闲端口 + 节点名改成 n0000 这样的别名，
 避免名字里的 emoji/中文/竖线在 API 路径和 YAML 里出幺蛾子），分两轮：
 
-  1) 延迟轮：对每个节点调 `/proxies/<别名>/delay`（等价于客户端里的健康检查），
-     超时或报错的直接淘汰；这一轮把 5000+ 个节点砍到几百个。
+  1) 延迟轮：对每个节点调 `/proxies/<别名>/delay`（等价于客户端里的健康检查，默认探
+     https://www.gstatic.com/generate_204），超时或报错的直接淘汰；这一轮把 5000+ 个节点
+     砍到几百个。可选 `--latency-expected 204` 强制端点必须回 204（挡"假通"，但会少留
+     一批节点，默认不开）。
   2) 测速轮：给活下来的节点各开一个 `listeners` 入站（`proxy:` 字段绑定到该节点，
      见 mihomo 的 "入站监听器" 文档），再用本机 HTTP 代理的方式从 speed.cloudflare.com
      真下 512KB —— 只有"能握手但传输废掉"的节点会在这轮现形（免费池里这类很多：
@@ -182,7 +184,7 @@ class Core:
         except Exception as e:  # noqa: BLE001
             return 0, repr(e)
 
-    def delay(self, alias, url, timeout_ms, retries=2):
+    def delay(self, alias, url, timeout_ms, retries=2, expected=''):
         """返回 (延迟ms, 失败原因)。
 
         `st == 0` 表示**连本地内核的 HTTP 都没连上**（本机防火墙/杀软/端口紧张时会被 RST），
@@ -191,7 +193,12 @@ class Core:
         """
         last = ''
         for i in range(retries + 1):
-            q = urllib.parse.urlencode({'url': url, 'timeout': timeout_ms})
+            # expected 交给内核去校验状态码（mihomo delay API 的 expected 参数）：
+            # 明文 generate_204 一旦被中间设备塞回 200/302 页面，不校验就会把"假通"算成可用。
+            q = {'url': url, 'timeout': timeout_ms}
+            if expected:
+                q['expected'] = expected
+            q = urllib.parse.urlencode(q)
             st, body = self.api('/proxies/%s/delay?%s' % (urllib.parse.quote(alias, safe=''), q),
                                 timeout=timeout_ms / 1000.0 + 20)
             if st == 200:
@@ -365,6 +372,11 @@ def main():
     # 阈值
     ap.add_argument('--latency-url', default='https://www.gstatic.com/generate_204',
                     help='延迟测试地址（与客户端健康检查一致）')
+    ap.add_argument('--latency-expected', default='',
+                    help='延迟测试要求的 HTTP 状态码（mihomo delay API 的 expected 参数）。'
+                         '默认空 = 不校验（只要有响应就算通）。要卡"必须真回 204"就传 204：'
+                         '好处是挡掉被中间设备塞回 200/302 页面的"假通"节点，代价是部分节点会'
+                         '因为端点返回非 204 而被判死（实测会让存活数明显下降），按需开')
     ap.add_argument('--latency-timeout', type=int, default=3000, help='单个节点的延迟测试超时（毫秒）')
     ap.add_argument('--max-latency', type=int, default=2000, help='延迟超过这个值就不要了（毫秒）')
     ap.add_argument('--speed-url', default='https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb',
@@ -379,7 +391,9 @@ def main():
     ap.add_argument('--speed-limit', type=int, default=800, help='最多给多少个（延迟最优的）节点做下载测速')
     ap.add_argument('--max-nodes', type=int, default=600, help='最终订阅里最多留多少个节点')
     ap.add_argument('--concurrency', type=int, default=64, help='并发数（延迟轮）')
-    ap.add_argument('--min-keep', type=int, default=100, help='活下来的节点少于这个数就判失败（不发布）')
+    ap.add_argument('--min-keep', type=int, default=0,
+                    help='活下来的节点少于这个数就判失败（不发布，release 里保住上一版）。'
+                         '默认 0 = 不设保底：宁可少而准，也不要为了凑数把"时好时坏"的节点塞进订阅')
     ap.add_argument('--limit', type=int, help='只测前 N 个节点（本机冒烟用）')
     ap.add_argument('--dns-doh', action='append', default=None,
                     help='给测试用的内核配上 DoH DNS（可重复指定，如 --dns-doh https://doh.pub/dns-query）。'
@@ -401,6 +415,11 @@ def main():
     ap.add_argument('--ipv6-policy', choices=['keep', 'drop'], default='keep',
                     help='测试机没有 IPv6 时，IPv6 字面量节点怎么办：keep=原样保留（默认，不冤枉好节点）/ drop=删掉')
     a = ap.parse_args()
+
+    # '0' / 空字符串 = 不校验状态码（退化成"只要有响应就算通"，不推荐）
+    exp_status = (a.latency_expected or '').strip()
+    if exp_status == '0':
+        exp_status = ''
 
     t_start = time.time()
     with open(a.pool, 'r', encoding='utf-8') as fh:
@@ -466,7 +485,9 @@ def main():
     latency = {}
     failed_reason = {}
     if alias_nodes:
-        print('\n延迟轮：%d 个节点，超时 %dms，并发 %d' % (len(alias_nodes), a.latency_timeout, a.concurrency))
+        print('\n延迟轮：%d 个节点，探测 %s（要求 %s），超时 %dms，并发 %d' % (
+            len(alias_nodes), a.latency_url, exp_status or '不校验状态码',
+            a.latency_timeout, a.concurrency))
         core = Core(a.core, alias_nodes, None, a.core_log, dns=dns_cfg)
         if not core.ready:
             print('内核启动失败：\n%s' % core.log_tail())
@@ -474,7 +495,8 @@ def main():
             return 1
         t0 = time.time()
         with ThreadPoolExecutor(max_workers=a.concurrency) as ex:
-            futs = {ex.submit(core.delay, al, a.latency_url, a.latency_timeout): al for al in alias_map}
+            futs = {ex.submit(core.delay, al, a.latency_url, a.latency_timeout, 2, exp_status): al
+                    for al in alias_map}
             done = 0
             for f in as_completed(futs):
                 al = futs[f]
@@ -619,9 +641,11 @@ def main():
                     '# 生成时间: {ts}\n'
                     '# 节点数: {kept}；筛选条件: 延迟 ≤{maxlat}ms（超时 {lto}ms）、下载 ≥{minsp} KB/s'
                     '（{bytes}KB 块，限时 {sto}s）\n'
+                    '# 延迟探测: {url}（要求 HTTP {exp}）\n'
                     '# 各源: {by}\n').format(ts=ts, kept=len(final_nodes), maxlat=a.max_latency,
                                              lto=a.latency_timeout, minsp=a.min_speed_kbps,
                                              bytes=a.speed_bytes // 1024, sto=int(a.speed_timeout),
+                                             url=a.latency_url, exp=exp_status or '任意',
                                              by=', '.join('%s=%d' % kv for kv in sorted(by_source.items())))
     if a.nodes_out:
         with open(a.nodes_out, 'w', encoding='utf-8', newline='\n') as fh:
@@ -635,12 +659,14 @@ def main():
                        '# 节点数: {kept}（节点池 {pool} → 延迟合格 {lat} → 测速合格 {spd}）\n'
                        '# 筛选条件: 延迟 ≤{maxlat}ms（超时 {lto}ms）、下载 ≥{minsp} KB/s'
                        '（{bytes}KB 块，限时 {sto}s）、最多 {maxn} 个\n'
+                       '# 延迟探测: {url}（要求 HTTP {exp}）\n'
                        '# ⚠ 测速环境: {loc}。它只说明节点"活着且能跑流量"；\n'
                        '#   从你自己的网络连它是否同样快，取决于你自己的链路（客户端的健康检查会再筛一遍）。\n').format(
             cfg=a.source_label or os.path.basename(a.config), ts=ts, kept=len(final_nodes),
             pool=len(nodes), lat=len(ok_latency), spd=len(speed), maxlat=a.max_latency,
             lto=a.latency_timeout, minsp=a.min_speed_kbps, bytes=a.speed_bytes // 1024,
-            sto=int(a.speed_timeout), maxn=a.max_nodes, loc=a.test_location)
+            sto=int(a.speed_timeout), maxn=a.max_nodes, loc=a.test_location,
+            url=a.latency_url, exp=exp_status or '任意')
         text = build_output_config(a.config, final_nodes, best_header)
         with open(a.out, 'w', encoding='utf-8', newline='\n') as fh:
             fh.write(text)
@@ -742,7 +768,8 @@ def main():
         'total': len(nodes),
         'kept': len(final_nodes),
         'by_source': by_source,
-        'latency': {'tested': len(alias_nodes), 'url': a.latency_url, 'timeout_ms': a.latency_timeout,
+        'latency': {'tested': len(alias_nodes), 'url': a.latency_url, 'expected': exp_status,
+                    'timeout_ms': a.latency_timeout,
                     'max_ms': a.max_latency, 'passed': len(ok_latency),
                     'failure_kinds': dtype},
         'speed': {'tested': len(speed_pool), 'url': a.speed_url, 'urls': urls, 'bytes': a.speed_bytes,
@@ -779,6 +806,7 @@ def main():
                 len(nodes), pool_stats.get('source_count', '?'), len(ok_latency), len(speed), len(final_nodes)))
             fh.write('- 筛选标准：延迟 ≤%dms（超时 %dms）、下载 ≥%d KB/s（%dKB 测试块，限时 %ds）\n' % (
                 a.max_latency, a.latency_timeout, a.min_speed_kbps, a.speed_bytes // 1024, int(a.speed_timeout)))
+            fh.write('- 延迟探测：`%s`（要求 HTTP %s）\n' % (a.latency_url, exp_status or '任意'))
             fh.write('- 各源存活：%s\n' % ', '.join('%s=%d' % kv for kv in sorted(by_source.items())))
             if pool_stats.get('failed_sources'):
                 fh.write('- ⚠ 本次拉取失败的源：%s\n' % ', '.join(pool_stats['failed_sources']))
