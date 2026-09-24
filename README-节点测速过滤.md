@@ -104,14 +104,15 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `--latency-url` / `--latency-timeout` | gstatic 204 / 3000ms | 延迟测试地址与客户端健康检查一致，超时即淘汰 |
+| `--latency-url` / `--latency-timeout` | `http://www.gstatic.com/generate_204` / 3000ms | 延迟轮探测地址（明文 http，无 TLS 握手，量的是纯链路往返），超时即淘汰 |
 | `--max-latency` | 2000ms | 延迟超过就淘汰 |
 | `--speed-url` / `--speed-url-fallback` | Google CDN 大文件 / Cloudflare speed | 下载测速目标。主目标跟延迟轮同属 Google（能通 gstatic 的节点基本都能通它）；主目标**一个字节都读不到**时才换兜底 |
 | `--speed-bytes` / `--speed-timeout` | 512KB / 10s | 每个存活节点真下 512KB |
 | `--min-speed-kbps` | 100 KB/s | 下载速度低于就淘汰（"速度不足"和"下载失败"分开记，日志里能看到各占多少） |
 | `--speed-limit` | 800 | 只给延迟最好的 800 个做下载测速（流量与时间可控） |
 | `--max-nodes` | 600 | 最终订阅最多 600 个节点（按延迟从好到差排） |
-| `--min-keep` | 100 | 存活少于 100 个就**判失败、不发布**（release 里保住上一版） |
+| `--min-keep` | 0 | 存活少于 N 个就**判失败、不发布**（release 里保住上一版）。**0 = 不设保底**：宁可少而准，也不为凑数塞进半死不活的节点 |
+| `--verify-url` / `--verify-expected` / `--verify-timeout` | 空（不跑）/ 204 / 3000ms | 可选的**复核轮**：在延迟轮之后再单独探一次并强制要求回 204，捞"握手 200 但流量不通"的假通节点。留空 = 不跑这一轮 |
 | `--concurrency` | 64 | 延迟轮并发 |
 
 淘汰原因都会写进 `dist/filter-stats.json` 和 Actions 日志（哪个节点、什么原因）。
@@ -137,7 +138,7 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
    workflow 一行都不用动。加源时注意两点：① 前缀用还没被占的（`S11 |`、`S12 |`…），
    产物里靠它区分来源，也是客户端"记住手动选过的节点"的依据；② 某个源拉不动、或返回的
    不是节点清单时，只会在日志里记一条"拉取失败 / 源内容异常"并跳过它，不会拖累其它源
-   （`--min-keep` 兜底：活节点太少就整体不发布，release 保留上一版）。
+   （`--min-keep` 兜底：现在默认 0 = 不保底；想恢复"活节点太少就不发布"就把它改成 100 之类）。
    另外：新源如果套了别的 GitHub 镜像前缀（不是 `github.boki.moe` / `seep.eu.org`），
    把前缀加进 `tools/fetch_node_pool.py` 的 `MIRROR_PREFIXES` 就能让它在 runner 上走直连；
    不加也只是拉得慢一点，不影响结果。
