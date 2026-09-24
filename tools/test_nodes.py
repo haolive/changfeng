@@ -11,6 +11,9 @@
      https://www.gstatic.com/generate_204），超时或报错的直接淘汰；这一轮把 5000+ 个节点
      砍到几百个。可选 `--latency-expected 204` 强制端点必须回 204（挡"假通"，但会少留
      一批节点，默认不开）。
+  1.5) 复核轮（可选，`--verify-url` 打开）：再探一次明文 http://www.gstatic.com/generate_204，
+       并要求**真的回 204**。延迟轮只量"多久有响应"，这一轮问的是"端点是否按预期应答" ——
+       "握手 200、一下载就断"的假通节点在这一轮现形，而且挡在下载轮之前，整体更快。
   2) 测速轮：给活下来的节点各开一个 `listeners` 入站（`proxy:` 字段绑定到该节点，
      见 mihomo 的 "入站监听器" 文档），再用本机 HTTP 代理的方式从 speed.cloudflare.com
      真下 512KB —— 只有"能握手但传输废掉"的节点会在这轮现形（免费池里这类很多：
@@ -378,6 +381,14 @@ def main():
                          '好处是挡掉被中间设备塞回 200/302 页面的"假通"节点，代价是部分节点会'
                          '因为端点返回非 204 而被判死（实测会让存活数明显下降），按需开')
     ap.add_argument('--latency-timeout', type=int, default=3000, help='单个节点的延迟测试超时（毫秒）')
+    # 复核轮：延迟轮之外**再加一轮**独立的可用性探测。与延迟轮的区别是它默认用明文
+    # http://www.gstatic.com/generate_204 并强制要求回 204 —— 延迟轮只量"多久有响应"，
+    # 这一轮问的是"端点是不是真的按预期回了 204"，专门捞"握手 200 但流量不通"的假通节点。
+    ap.add_argument('--verify-url', default='',
+                    help='复核轮探测地址（留空 = 不做复核）。建议 http://www.gstatic.com/generate_204')
+    ap.add_argument('--verify-expected', default='204',
+                    help='复核轮要求的 HTTP 状态码（默认 204；传 0/空字符串 = 只探不校验）')
+    ap.add_argument('--verify-timeout', type=int, default=3000, help='复核轮单个节点超时（毫秒）')
     ap.add_argument('--max-latency', type=int, default=2000, help='延迟超过这个值就不要了（毫秒）')
     ap.add_argument('--speed-url', default='https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb',
                     help='测速下载地址（默认用 Google CDN 的大文件：延迟轮也是 Google 家族的地址，'
@@ -420,6 +431,9 @@ def main():
     exp_status = (a.latency_expected or '').strip()
     if exp_status == '0':
         exp_status = ''
+    verify_exp = (a.verify_expected or '').strip()
+    if verify_exp == '0':
+        verify_exp = ''
 
     t_start = time.time()
     with open(a.pool, 'r', encoding='utf-8') as fh:
@@ -527,6 +541,46 @@ def main():
     too_slow = [al for al, dl in latency.items() if dl > a.max_latency]
     ok_latency = {al: dl for al, dl in latency.items() if dl <= a.max_latency}
     print('延迟 ≤%dms 的有 %d 个（>%dms 淘汰 %d 个）' % (a.max_latency, len(ok_latency), a.max_latency, len(too_slow)))
+
+    # ---- 复核轮：generate_204 可用性（可选，--verify-url 打开）------------------
+    # 延迟轮问的是"多久有响应"，这一轮问的是"端点是不是真的按预期回了 204"。
+    # 两者不是一回事：有些节点握手 200、首字节也快，但真跑流量就断 —— 明文 204 复核
+    # 把它们挡在下载测速之前，顺带也让下载轮少跑一批废节点（整体更快）。
+    verify = {'url': a.verify_url, 'expected': verify_exp, 'timeout_ms': a.verify_timeout,
+              'tested': 0, 'passed': 0, 'failure_kinds': {}}
+    if a.verify_url and ok_latency:
+        print('\n复核轮：%d 个节点，探 %s（要求 HTTP %s，超时 %dms，并发 %d）' % (
+            len(ok_latency), a.verify_url, verify_exp or '任意', a.verify_timeout, a.concurrency))
+        core = Core(a.core, alias_nodes, None, a.core_log, dns=dns_cfg)
+        if not core.ready:
+            print('内核启动失败：\n%s' % core.log_tail())
+            core.stop()
+            return 1
+        ok2, vfail = {}, {}
+        t0 = time.time()
+        with ThreadPoolExecutor(max_workers=a.concurrency) as ex:
+            futs = {ex.submit(core.delay, al, a.verify_url, a.verify_timeout, 2, verify_exp): al
+                    for al in ok_latency}
+            for f in as_completed(futs):
+                al = futs[f]
+                d, why = f.result()
+                if d is not None:
+                    ok2[al] = d
+                else:
+                    vfail[al] = why
+        core.stop()
+        vkinds = {}
+        for why in vfail.values():
+            k = (why.split(' ')[0] or '未知')[:40]
+            vkinds[k] = vkinds.get(k, 0) + 1
+        verify.update(tested=len(ok_latency), passed=len(ok2), failure_kinds=vkinds)
+        print('复核轮结束：%d/%d 通过，用时 %.0fs' % (len(ok2), len(ok_latency), time.time() - t0))
+        if vkinds:
+            print('  未通过原因：%s' % '；'.join('%s ×%d' % kv for kv in
+                                              sorted(vkinds.items(), key=lambda kv: -kv[1])[:6]))
+        # 复核轮读到的是明文链路耗时，比延迟轮（含 TLS）更接近"这根管子本身"的快慢，
+        # 用它替换读数参与排序；阈值仍按 --max-latency 走一遍，避免把慢的放进来。
+        ok_latency = {al: d for al, d in ok2.items() if d <= a.max_latency}
 
     # ---- 第二轮：下载测速 -----------------------------------------------------
     speed_pool = sorted(ok_latency, key=lambda al: ok_latency[al])[:a.speed_limit]
@@ -637,12 +691,16 @@ def main():
         src = nm.split(' |')[0] if ' |' in nm else '其它'
         by_source[src] = by_source.get(src, 0) + 1
     ts = time.strftime('%Y-%m-%d %H:%M:%S')
+    vf_line = ''
+    if a.verify_url:
+        vf_line = '# 204 复核: %s（要求 HTTP %s）\n' % (a.verify_url, verify_exp or '任意')
     nodes_header = ('# 由 tools/test_nodes.py 自动生成：多订阅节点池经延迟 + 下载测速后的存活节点\n'
                     '# 生成时间: {ts}\n'
                     '# 节点数: {kept}；筛选条件: 延迟 ≤{maxlat}ms（超时 {lto}ms）、下载 ≥{minsp} KB/s'
                     '（{bytes}KB 块，限时 {sto}s）\n'
                     '# 延迟探测: {url}（要求 HTTP {exp}）\n'
-                    '# 各源: {by}\n').format(ts=ts, kept=len(final_nodes), maxlat=a.max_latency,
+                    + vf_line
+                    + '# 各源: {by}\n').format(ts=ts, kept=len(final_nodes), maxlat=a.max_latency,
                                              lto=a.latency_timeout, minsp=a.min_speed_kbps,
                                              bytes=a.speed_bytes // 1024, sto=int(a.speed_timeout),
                                              url=a.latency_url, exp=exp_status or '任意',
@@ -660,6 +718,7 @@ def main():
                        '# 筛选条件: 延迟 ≤{maxlat}ms（超时 {lto}ms）、下载 ≥{minsp} KB/s'
                        '（{bytes}KB 块，限时 {sto}s）、最多 {maxn} 个\n'
                        '# 延迟探测: {url}（要求 HTTP {exp}）\n'
+                       + vf_line +
                        '# ⚠ 测速环境: {loc}。它只说明节点"活着且能跑流量"；\n'
                        '#   从你自己的网络连它是否同样快，取决于你自己的链路（客户端的健康检查会再筛一遍）。\n').format(
             cfg=a.source_label or os.path.basename(a.config), ts=ts, kept=len(final_nodes),
@@ -772,6 +831,7 @@ def main():
                     'timeout_ms': a.latency_timeout,
                     'max_ms': a.max_latency, 'passed': len(ok_latency),
                     'failure_kinds': dtype},
+        'verify': verify,
         'speed': {'tested': len(speed_pool), 'url': a.speed_url, 'urls': urls, 'bytes': a.speed_bytes,
                   'min_kbps': a.min_speed_kbps, 'timeout_s': a.speed_timeout, 'limit': a.speed_limit,
                   'passed': len(speed), 'failure_kinds': sf_kinds},
@@ -807,6 +867,9 @@ def main():
             fh.write('- 筛选标准：延迟 ≤%dms（超时 %dms）、下载 ≥%d KB/s（%dKB 测试块，限时 %ds）\n' % (
                 a.max_latency, a.latency_timeout, a.min_speed_kbps, a.speed_bytes // 1024, int(a.speed_timeout)))
             fh.write('- 延迟探测：`%s`（要求 HTTP %s）\n' % (a.latency_url, exp_status or '任意'))
+            if a.verify_url:
+                fh.write('- 204 复核：`%s`（要求 HTTP %s，%d/%d 通过）\n' % (
+                    a.verify_url, verify_exp or '任意', verify['passed'], verify['tested']))
             fh.write('- 各源存活：%s\n' % ', '.join('%s=%d' % kv for kv in sorted(by_source.items())))
             if pool_stats.get('failed_sources'):
                 fh.write('- ⚠ 本次拉取失败的源：%s\n' % ', '.join(pool_stats['failed_sources']))
