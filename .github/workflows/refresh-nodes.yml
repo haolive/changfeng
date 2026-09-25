@@ -1,16 +1,21 @@
 name: refresh-nodes
 
-# 把「多订阅合并配置.yaml」里的 10 个 proxy-providers 合成一个节点池，逐个测速
-# （延迟 + 真实下载 512KB），只把活下来的节点发出来：
+# 把「多订阅合并配置.yaml」里的 10 个 proxy-providers 合成一个节点池，用两个
+# generate_204 端点各探一遍（**都必须通过**），只把"活着且能出网"的节点发出来：
 #
 #   release 资产 best.yaml   —— 完整配置（DNS/策略组/分流规则/广告规则集原样保留，
-#                               proxy-providers 段换成测速后的 inline proxies）
+#                               proxy-providers 段换成筛过的 inline proxies）
 #                               https://github.com/haolive/changfeng/releases/download/best/best.yaml
 #   release 资产 nodes.yaml  —— 只有 proxies 的清单，想自己组装配置时当 proxy-provider 用
 #
 # 为什么不在客户端里过滤：客户端的健康检查只能"发现"某个节点不通，删不掉它 ——
 # 列表越长，客户端每次要测的就越多，界面上看到的废节点也越多。放到 runner 上跑一遍，
 # 客户端拿到的就是"已经筛过一遍"的干净列表。
+#
+# ⚠ 2026-09-25 起口径是「只去死节点」：**不再卡延迟上限、不再测下载带宽**。
+#   判据只有一条 —— 两个端点都得通。理由：这份产物还要被下游（CNB 那边从国内视角）
+#   再筛一遍，在这里按速度砍掉一批，等于用"境外机房的尺度"替国内做决定，把可能
+#   好用的节点提前扔了。速度的事留给离你更近的那一层去判。
 #
 # 产物只在 release 里覆盖更新（不提交进 git，否则仓库每天涨几十 MB）；
 # 最后一步的 keepalive 是为了防止"公开仓库连续 60 天没有提交 → schedule 被自动停用"。
@@ -44,7 +49,7 @@ jobs:
       - name: 安装依赖
         run: pip install --quiet pyyaml
 
-      - name: 下载 mihomo（测速内核）
+      - name: 下载 mihomo（探测内核）
         run: |
           set -euo pipefail
           url=$(curl -sSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest \
@@ -66,7 +71,7 @@ jobs:
 
       # ⚠ 两个 tag 的资产名都必须是 best.yaml / nodes.yaml（客户端订阅地址指着它们），
       #   所以各自放在子目录里产出、再整目录上传（gh release upload 用的是文件名）。
-      - name: 逐个测速（延迟 + 下载），同时产出 best 与 fast
+      - name: 两轮探测（两个端点都必须通），同时产出 best 与 fast
         run: |
           set -euo pipefail
           python tools/test_nodes.py \
@@ -85,16 +90,23 @@ jobs:
             --core-log dist/core.log \
             --latency-url "http://www.gstatic.com/generate_204" \
             --latency-timeout 3000 \
-            --max-latency 2000 \
-            --speed-url "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" \
-            --speed-url-fallback "https://speed.cloudflare.com/__down?bytes={bytes}" \
-            --speed-bytes 524288 \
-            --speed-timeout 10 \
-            --min-speed-kbps 100 \
-            --speed-limit 800 \
-            --max-nodes 600 \
+            --max-latency 8000 \
+            --verify-url "http://cp.cloudflare.com/generate_204" \
+            --verify-expected 204 \
+            --verify-timeout 3000 \
+            --speed-limit 0 \
+            --max-nodes 0 \
             --concurrency 64 \
             --min-keep 0
+          # 口径说明（改上面的参数时记得同步这里）：
+          #   --latency-expected 故意不传 = 第一轮不校验状态码，只有"3000ms 内有没有响应"。
+          #     第一轮宽、第二轮严（复核轮强制 204）—— 宽进严出，既不误杀慢节点，
+          #     也挡得住"握手通、真跑流量就废"的假通节点。
+          #   --max-latency 8000：比 --latency-timeout 大，等于**不限延迟**（超时那一刻
+          #     就已经判死了，这条线永远碰不到）。写 8000 只是留一个显式上限，防手滑。
+          #   --speed-limit 0 = 完全不测下载带宽（第二轮判据只剩连通性）。
+          #   --max-nodes 0 = 数量不限：既然不按速度排序，再按延迟截断就等于偷偷加了
+          #     别的筛选条件。产物会变大，客户端侧本来就是拿它当 provider 用，扛得住。
 
       # 产物本身也过一遍内核：`-t` 会解析全部 inline proxies（字段非法会直接报错），
       # 顺带校验合并后的配置结构。geo 数据拉不到时跳过（那说明不了产物有问题）。
@@ -117,7 +129,7 @@ jobs:
 
       # 两个 tag：best（全量、全球可达性过滤）+ fast（在 best 基础上按类型收窄，见 --fast-types）
       #
-      # ⚠ 这一步最容易"整轮白跑"：2026-09-24 那次 run 36073163501，前面的合并 / 逐条测速 /
+      # ⚠ 这一步最容易"整轮白跑"：2026-09-24 那次 run 36073163501，前面的合并 / 两轮探测 /
       #    内核校验**全部成功**，只有这里挂了（gh 的 release 接口偶发 5xx / 限流），
       #    结果几十分钟的计算全白费、产物没更新。所以每次调用都包一层重试；
       #    重试仍失败才让这一步失败（那时确实该失败）。
@@ -157,7 +169,7 @@ jobs:
           echo "已更新 https://github.com/${{ github.repository }}/releases/download/best/best.yaml"
           echo "已更新 https://github.com/${{ github.repository }}/releases/download/fast/best.yaml"
 
-      - name: 保存测速日志（排查用）
+      - name: 保存内核日志（排查用）
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -183,7 +195,7 @@ jobs:
             if git diff --cached --quiet; then
               echo "文件内容没变，跳过提交"
             else
-              git commit -m "chore(stats): 节点测速统计（源变化或超 7 天保活）"
+              git commit -m "chore(stats): 节点过滤统计（源变化或超 7 天保活）"
               git push || echo "::warning::git push 失败（仓库可能同时有别的改动），下次运行再试"
             fi
           else
