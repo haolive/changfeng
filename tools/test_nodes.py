@@ -361,6 +361,64 @@ def build_output_config(template_path, nodes, header):
     return header + sp.dump_go_safe(out)
 
 
+def funnel_line(pool, lat, spd, final, a, plain=False):
+    """把"池子 → 各阶段 → 最终"的漏斗写成人话（不测下载时别硬塞一个 0 进去）。
+
+    plain 只是给调用方语义用（notes 里不用代码块包），渲染上目前一致。
+    """
+    arrow = ' → '
+    if a.speed_limit > 0:
+        steps = ['节点池 %d' % pool, '延迟合格 %d' % lat, '测速合格 %d' % spd]
+    else:
+        steps = ['节点池 %d' % pool, '探测通过 %d' % lat]
+    if a.max_nodes and final < (spd if a.speed_limit > 0 else lat):
+        steps.append('按延迟取前 %d' % a.max_nodes)
+    steps.append('最终 %d' % final)
+    return arrow.join(steps)
+
+
+def filter_profile(a, exp_status, verify_exp):
+    """按当前参数生成"筛选口径"说明（产物头部与 release notes 共用）。
+
+    为什么要生成而不是写死：这段说明原来是硬编码的（"延迟 ≤2000ms、下载 ≥100KB/s"），
+    参数一改文字就变成假的。产物是公开的、也可能被未来的自己翻出来查，
+    说明必须跟参数同源 —— 否则排查时会拿一份错误的说明书去对数据。
+    """
+    # 延迟上限 >= 探测超时 时，上限形同虚设（超时那一刻就已经判死了）→ 口径就是"不限"
+    lat_rule = ('延迟不限' if a.max_latency >= a.latency_timeout
+                else '延迟 ≤%dms' % a.max_latency)
+    items = [('连通', '%s（要求 HTTP %s，超时 %dms；%s）'
+               % (a.latency_url, exp_status or '任意', a.latency_timeout, lat_rule))]
+    if a.verify_url:
+        items.append(('可用', '%s（要求 HTTP %s，超时 %dms）—— 与①**都必须通过**'
+                       % (a.verify_url, verify_exp or '任意', a.verify_timeout)))
+    if a.speed_limit > 0:
+        items.append(('带宽', '≥%g KB/s（%dKB 块，限时 %gs）'
+                      % (a.min_speed_kbps, a.speed_bytes // 1024, a.speed_timeout)))
+    else:
+        items.append(('带宽', '不测（只判"能不能用"，不判"有多快"）'))
+    items.append(('数量', '不限（活下来多少留多少）' if not a.max_nodes else '最多 %d 个' % a.max_nodes))
+    marks = '①②③④⑤⑥'
+    return [(marks[i] + ' ' + k, v) for i, (k, v) in enumerate(items)]
+
+
+def filter_clause(a, exp_status, verify_exp, head='# 筛选口径', cont='#   '):
+    """渲染成产物头部的多行注释。"""
+    out = [head + ':\n']
+    for k, v in filter_profile(a, exp_status, verify_exp):
+        out.append('%s%s %s\n' % (cont, k, v))
+    return ''.join(out)
+
+
+def filter_notes_lines(a, exp_status, verify_exp):
+    """渲染成 release notes 里的一行行 markdown。"""
+    marks = {'连通': '', '可用': '', '带宽': '', '数量': ''}
+    out = []
+    for k, v in filter_profile(a, exp_status, verify_exp):
+        out.append('- %s：%s\n' % (k, v))
+    return ''.join(out)
+
+
 def main():
     ap = argparse.ArgumentParser(description='节点池测速 + 产出过滤后的订阅')
     ap.add_argument('--pool', required=True, help='tools/fetch_node_pool.py 产出的节点池')
@@ -389,7 +447,9 @@ def main():
     ap.add_argument('--verify-expected', default='204',
                     help='复核轮要求的 HTTP 状态码（默认 204；传 0/空字符串 = 只探不校验）')
     ap.add_argument('--verify-timeout', type=int, default=3000, help='复核轮单个节点超时（毫秒）')
-    ap.add_argument('--max-latency', type=int, default=2000, help='延迟超过这个值就不要了（毫秒）')
+    ap.add_argument('--max-latency', type=int, default=2000,
+                    help='延迟超过这个值就不要了（毫秒）。**传 >= --latency-timeout 的值即等于不限**'
+                         '（超时那一刻已经判死，阈值形同虚设）—— 只想「去掉死节点、不卡速度」就传 8000')
     ap.add_argument('--speed-url', default='https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb',
                     help='测速下载地址（默认用 Google CDN 的大文件：延迟轮也是 Google 家族的地址，'
                          '能通 gstatic 的节点基本都能通它；{bytes} 会被替换成测试块大小）')
@@ -400,7 +460,9 @@ def main():
     ap.add_argument('--speed-timeout', type=float, default=10.0, help='测速下载的超时（秒）')
     ap.add_argument('--min-speed-kbps', type=float, default=100.0, help='低于这个速度就不要了（KB/s）')
     ap.add_argument('--speed-limit', type=int, default=800, help='最多给多少个（延迟最优的）节点做下载测速')
-    ap.add_argument('--max-nodes', type=int, default=600, help='最终订阅里最多留多少个节点')
+    ap.add_argument('--max-nodes', type=int, default=600,
+                    help='最终订阅里最多留多少个节点；0 = 不限（活下来多少就留多少 —— '
+                         '不测下载带宽时，按延迟截断等于偷偷加了别的筛选条件）')
     ap.add_argument('--concurrency', type=int, default=64, help='并发数（延迟轮）')
     ap.add_argument('--min-keep', type=int, default=0,
                     help='活下来的节点少于这个数就判失败（不发布，release 里保住上一版）。'
@@ -540,7 +602,14 @@ def main():
 
     too_slow = [al for al, dl in latency.items() if dl > a.max_latency]
     ok_latency = {al: dl for al, dl in latency.items() if dl <= a.max_latency}
-    print('延迟 ≤%dms 的有 %d 个（>%dms 淘汰 %d 个）' % (a.max_latency, len(ok_latency), a.max_latency, len(too_slow)))
+    if a.max_latency >= a.latency_timeout:
+        # 上限 >= 超时值时，阈值根本不参与判定（超时那一刻已经判死）→ 口径就是"不限"。
+        # 打印成 "≤8000ms" 会让人以为有条 8 秒的线，其实那条线永远碰不到。
+        print('延迟不限：延迟轮活下来 %d 个（%dms 内没响应才判死）'
+              % (len(ok_latency), a.latency_timeout))
+    else:
+        print('延迟 ≤%dms 的有 %d 个（>%dms 淘汰 %d 个）'
+              % (a.max_latency, len(ok_latency), a.max_latency, len(too_slow)))
 
     # ---- 复核轮：generate_204 可用性（可选，--verify-url 打开）------------------
     # 延迟轮问的是"多久有响应"，这一轮问的是"端点是不是真的按预期回了 204"。
@@ -651,7 +720,7 @@ def main():
                 continue
             seen.add(k)
             out.append(al)
-            if len(out) >= cap:
+            if cap and len(out) >= cap:      # cap=0 → 不限（见 --max-nodes）
                 break
         return out
 
@@ -659,10 +728,15 @@ def main():
     final_aliases = pick(candidates, a.max_nodes)
     final_nodes = [alias_map[al] for al in final_aliases] + v6_kept
     n_speed_in = sum(1 for al in final_aliases if al in speed)
-    print('\n最终 %d 个节点 = 测速合格 %d + 仅延迟合格（没排上测速）%d + IPv6 未测速 %d' % (
-        len(final_nodes), n_speed_in, len(final_aliases) - n_speed_in, len(v6_kept)))
-    print('  测速合格共 %d 个、仅延迟合格共 %d 个，--max-nodes=%d' % (
-        len(speed), len(untested_ok), a.max_nodes))
+    if a.speed_limit > 0:
+        print('\n最终 %d 个节点 = 测速合格 %d + 仅延迟合格（没排上测速）%d + IPv6 未测速 %d' % (
+            len(final_nodes), n_speed_in, len(final_aliases) - n_speed_in, len(v6_kept)))
+        print('  测速合格共 %d 个、仅延迟合格共 %d 个，--max-nodes=%s' % (
+            len(speed), len(untested_ok), a.max_nodes or '不限'))
+    else:
+        print('\n最终 %d 个节点 = 探测通过 %d + IPv6 未测速 %d（未测下载带宽）' % (
+            len(final_nodes), len(final_aliases), len(v6_kept)))
+        print('  探测通过共 %d 个，--max-nodes=%s' % (len(untested_ok), a.max_nodes or '不限'))
 
     # ---- 优先订阅（fast）：只留"经验上从国内连得通"的类型 ----------------------
     # 依据见 README-节点测速过滤.md：2026-09-24 实测（602 个节点、从大陆本机逐个 TCP 探测），
@@ -691,19 +765,12 @@ def main():
         src = nm.split(' |')[0] if ' |' in nm else '其它'
         by_source[src] = by_source.get(src, 0) + 1
     ts = time.strftime('%Y-%m-%d %H:%M:%S')
-    vf_line = ''
-    if a.verify_url:
-        vf_line = '# 204 复核: %s（要求 HTTP %s）\n' % (a.verify_url, verify_exp or '任意')
-    nodes_header = ('# 由 tools/test_nodes.py 自动生成：多订阅节点池经延迟 + 下载测速后的存活节点\n'
+    clause = filter_clause(a, exp_status, verify_exp)
+    nodes_header = ('# 由 tools/test_nodes.py 自动生成：多订阅节点池经多端点探测后的存活节点\n'
                     '# 生成时间: {ts}\n'
-                    '# 节点数: {kept}；筛选条件: 延迟 ≤{maxlat}ms（超时 {lto}ms）、下载 ≥{minsp} KB/s'
-                    '（{bytes}KB 块，限时 {sto}s）\n'
-                    '# 延迟探测: {url}（要求 HTTP {exp}）\n'
-                    + vf_line
-                    + '# 各源: {by}\n').format(ts=ts, kept=len(final_nodes), maxlat=a.max_latency,
-                                             lto=a.latency_timeout, minsp=a.min_speed_kbps,
-                                             bytes=a.speed_bytes // 1024, sto=int(a.speed_timeout),
-                                             url=a.latency_url, exp=exp_status or '任意',
+                    '# 节点数: {kept}\n'
+                    + clause
+                    + '# 各源: {by}\n').format(ts=ts, kept=len(final_nodes),
                                              by=', '.join('%s=%d' % kv for kv in sorted(by_source.items())))
     if a.nodes_out:
         with open(a.nodes_out, 'w', encoding='utf-8', newline='\n') as fh:
@@ -712,20 +779,15 @@ def main():
         print('写出 %s' % a.nodes_out)
     if a.out:
         best_header = ('# 由 tools/test_nodes.py 自动生成，请勿手工编辑（改动会被下次生成覆盖）。\n'
-                       '# 源模板: {cfg}（proxy-providers 段已换成测速后的 inline proxies，其余原样保留）\n'
+                       '# 源模板: {cfg}（proxy-providers 段已换成筛过的 inline proxies，其余原样保留）\n'
                        '# 生成时间: {ts}\n'
-                       '# 节点数: {kept}（节点池 {pool} → 延迟合格 {lat} → 测速合格 {spd}）\n'
-                       '# 筛选条件: 延迟 ≤{maxlat}ms（超时 {lto}ms）、下载 ≥{minsp} KB/s'
-                       '（{bytes}KB 块，限时 {sto}s）、最多 {maxn} 个\n'
-                       '# 延迟探测: {url}（要求 HTTP {exp}）\n'
-                       + vf_line +
-                       '# ⚠ 测速环境: {loc}。它只说明节点"活着且能跑流量"；\n'
-                       '#   从你自己的网络连它是否同样快，取决于你自己的链路（客户端的健康检查会再筛一遍）。\n').format(
+                       '# 节点数: {kept}（{funnel}）\n'
+                       + clause +
+                       '# ⚠ 探测环境: {loc}。它只说明节点"活着、能出网"；从你自己的网络连它\n'
+                       '#   是否同样快，取决于你自己的链路（客户端的健康检查会再筛一遍）。\n').format(
             cfg=a.source_label or os.path.basename(a.config), ts=ts, kept=len(final_nodes),
-            pool=len(nodes), lat=len(ok_latency), spd=len(speed), maxlat=a.max_latency,
-            lto=a.latency_timeout, minsp=a.min_speed_kbps, bytes=a.speed_bytes // 1024,
-            sto=int(a.speed_timeout), maxn=a.max_nodes, loc=a.test_location,
-            url=a.latency_url, exp=exp_status or '任意')
+            funnel=funnel_line(len(nodes), len(ok_latency), len(speed), len(final_nodes), a),
+            loc=a.test_location)
         text = build_output_config(a.config, final_nodes, best_header)
         with open(a.out, 'w', encoding='utf-8', newline='\n') as fh:
             fh.write(text)
@@ -832,8 +894,9 @@ def main():
                     'max_ms': a.max_latency, 'passed': len(ok_latency),
                     'failure_kinds': dtype},
         'verify': verify,
-        'speed': {'tested': len(speed_pool), 'url': a.speed_url, 'urls': urls, 'bytes': a.speed_bytes,
-                  'min_kbps': a.min_speed_kbps, 'timeout_s': a.speed_timeout, 'limit': a.speed_limit,
+        'speed': {'download_tested': a.speed_limit > 0, 'tested': len(speed_pool), 'url': a.speed_url,
+                  'urls': urls, 'bytes': a.speed_bytes, 'min_kbps': a.min_speed_kbps,
+                  'timeout_s': a.speed_timeout, 'limit': a.speed_limit,
                   'passed': len(speed), 'failure_kinds': sf_kinds},
         'ipv6': {'literals': len(v6_nodes), 'test_host_has_ipv6': test_host_has_v6,
                  'policy': a.ipv6_policy, 'kept_untested': len(v6_kept), 'dropped': len(v6_dropped)},
@@ -860,16 +923,14 @@ def main():
         # 用纯 GitHub 地址：说明是公开可见的，镜像前缀让用户自己在客户端加（换镜像不用改仓库）
         base = 'https://github.com/haolive/changfeng/releases/download/best'
         with open(a.notes, 'w', encoding='utf-8', newline='\n') as fh:
-            fh.write('# best（测速过滤后的订阅）\n\n')
+            fh.write('# best（去掉死节点后的订阅）\n\n')
             fh.write('- 生成时间：%s（用时 %.0fs）\n' % (ts, time.time() - t_start))
-            fh.write('- 节点池 %d 个（%s 个源）→ 延迟合格 %d → 测速合格 %d → **最终 %d 个**\n' % (
-                len(nodes), pool_stats.get('source_count', '?'), len(ok_latency), len(speed), len(final_nodes)))
-            fh.write('- 筛选标准：延迟 ≤%dms（超时 %dms）、下载 ≥%d KB/s（%dKB 测试块，限时 %ds）\n' % (
-                a.max_latency, a.latency_timeout, a.min_speed_kbps, a.speed_bytes // 1024, int(a.speed_timeout)))
-            fh.write('- 延迟探测：`%s`（要求 HTTP %s）\n' % (a.latency_url, exp_status or '任意'))
+            fh.write('- 漏斗：%s（%s 个源）\n' % (
+                funnel_line(len(nodes), len(ok_latency), len(speed), len(final_nodes), a, plain=True),
+                pool_stats.get('source_count', '?')))
+            fh.write(filter_notes_lines(a, exp_status, verify_exp))
             if a.verify_url:
-                fh.write('- 204 复核：`%s`（要求 HTTP %s，%d/%d 通过）\n' % (
-                    a.verify_url, verify_exp or '任意', verify['passed'], verify['tested']))
+                fh.write('- ② 本轮通过：%d/%d\n' % (verify['passed'], verify['tested']))
             fh.write('- 各源存活：%s\n' % ', '.join('%s=%d' % kv for kv in sorted(by_source.items())))
             if pool_stats.get('failed_sources'):
                 fh.write('- ⚠ 本次拉取失败的源：%s\n' % ', '.join(pool_stats['failed_sources']))
