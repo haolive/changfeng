@@ -116,20 +116,43 @@ jobs:
           fi
 
       # 两个 tag：best（全量、全球可达性过滤）+ fast（在 best 基础上按类型收窄，见 --fast-types）
+      #
+      # ⚠ 这一步最容易"整轮白跑"：2026-09-24 那次 run 36073163501，前面的合并 / 逐条测速 /
+      #    内核校验**全部成功**，只有这里挂了（gh 的 release 接口偶发 5xx / 限流），
+      #    结果几十分钟的计算全白费、产物没更新。所以每次调用都包一层重试；
+      #    重试仍失败才让这一步失败（那时确实该失败）。
       - name: 发布到 release（tag best 与 fast）
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release view best >/dev/null 2>&1 || gh release create best \
-            --title "best（测速过滤后的订阅）" --notes-file dist/best/notes.md
-          gh release upload best dist/best/best.yaml dist/best/nodes.yaml --clobber
-          gh release edit best --notes-file dist/best/notes.md
 
-          gh release view fast >/dev/null 2>&1 || gh release create fast \
-            --title "fast（优先订阅）" --notes-file dist/fast/notes.md
-          gh release upload fast dist/fast/best.yaml dist/fast/nodes.yaml --clobber
-          gh release edit fast --notes-file dist/fast/notes.md
+          retry() {
+            local n=0
+            while true; do
+              if "$@"; then return 0; fi
+              n=$((n + 1))
+              if [ "$n" -ge 4 ]; then
+                echo "::error::$* 连续 $n 次失败，放弃"
+                return 1
+              fi
+              echo "::warning::$* 第 $n 次失败，$((n * 15))s 后重试"
+              sleep $((n * 15))
+            done
+          }
+
+          ensure_release() {          # $1=tag  $2=notes 文件
+            if gh release view "$1" >/dev/null 2>&1; then return 0; fi
+            gh release create "$1" --title "$1" --notes-file "$2"
+          }
+
+          retry ensure_release best dist/best/notes.md
+          retry gh release upload best dist/best/best.yaml dist/best/nodes.yaml --clobber
+          retry gh release edit best --notes-file dist/best/notes.md
+
+          retry ensure_release fast dist/fast/notes.md
+          retry gh release upload fast dist/fast/best.yaml dist/fast/nodes.yaml --clobber
+          retry gh release edit fast --notes-file dist/fast/notes.md
 
           echo "已更新 https://github.com/${{ github.repository }}/releases/download/best/best.yaml"
           echo "已更新 https://github.com/${{ github.repository }}/releases/download/fast/best.yaml"
