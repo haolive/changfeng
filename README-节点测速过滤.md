@@ -6,8 +6,9 @@
 已经死掉的节点。客户端的健康检查只能"发现"某个节点不通，**删不掉它** —— 列表越长，
 客户端每次要测的越多，界面上看到的废节点也越多。
 
-这条流水线把活儿搬到 GitHub Actions：每小时把 10 个源合并成一个池子，用 mihomo 内核
-**逐个测延迟 + 逐个真下 512KB 测速**，只把活下来的节点发出来。
+这条流水线把活儿搬到 GitHub Actions：**定时**（实际会被平台限流，见文末）把 10 个源合并成一个池子，
+用 mihomo 内核**拿两个不同厂商的 `generate_204` 端点各探一遍（都必须通过）**，
+只把"活着且能出网"的节点发出来。
 
 ## 加了哪些文件（保持目录结构）
 
@@ -15,7 +16,7 @@
 |---|---|---|
 | `.github/workflows/refresh-nodes.yml` | 同左 | 定时任务：拉源 → 合并清洗 → 测速 → 发布 release（+ 保活） |
 | `tools/fetch_node_pool.py` | 同左 | 读配置里的 proxy-providers：逐源拉取、按字段清洗、加前缀、跨源去重 → 节点池 |
-| `tools/test_nodes.py` | 同左 | 起临时内核做两轮测速（延迟 / 下载），产出 `best.yaml` 和 `nodes.yaml` |
+| `tools/test_nodes.py` | 同左 | 起临时内核做两轮探测（连通性 / 可用性），产出 `best.yaml` 和 `nodes.yaml` |
 | `tools/sanitize_provider.py` | 同左 | 按字段清洗单个源（REALITY 字段、YAML 类型陷阱、client-fingerprint） |
 | `tools/local_cn_filter.py` | 同左 | **可选**：在自己网络下复筛节点（产物留本地，不参与 release 生成） |
 | `tools/keepalive.py` | 同左 | 按需提交统计文件（防止公开仓库 60 天无提交被停用定时任务） |
@@ -34,9 +35,9 @@ release 下两个 tag，各自都是两个资产：
 
 | tag | 资产 | 用途 |
 |---|---|---|
-| `best`（每小时自动更新） | `best.yaml` | **完整配置**：把「多订阅合并配置.yaml」的 `proxy-providers` 段换成测速后的 inline `proxies`，DNS / 策略组 / 分流规则 / 广告规则集原样保留。客户端里直接当订阅加即可 |
+| `best`（定时更新，⚠ 见文末「定时任务的可靠性」） | `best.yaml` | **完整配置**：把「多订阅合并配置.yaml」的 `proxy-providers` 段换成测速后的 inline `proxies`，DNS / 策略组 / 分流规则 / 广告规则集原样保留。客户端里直接当订阅加即可 |
 | | `nodes.yaml` | 只有 `proxies` 的清单。想保留自己那份配置、只把节点换掉的话，把它当 proxy-provider 用 |
-| `fast`（每小时自动更新） | `best.yaml` / `nodes.yaml` | 同结构，但**只保留经验上从国内连得通的节点类型**（`http` / `anytls`），列表缩到约 1/4、可用率明显更高。见下面「fast 是怎么筛的」 |
+| `fast`（定时更新，⚠ 见文末「定时任务的可靠性」） | `best.yaml` / `nodes.yaml` | 同结构，但**只保留经验上从国内连得通的节点类型**（`http` / `anytls`），列表缩到约 1/4、可用率明显更高。见下面「fast 是怎么筛的」 |
 
 地址：
 
@@ -50,7 +51,7 @@ https://github.com/haolive/changfeng/releases/download/fast/nodes.yaml
 > 这里写的是**纯 GitHub 地址**。直连慢的时候，在客户端里自己往前面套一个镜像前缀即可
 > （例如 `https://github.boki.moe/` + 上面的地址），换镜像不用改仓库里的任何东西。
 
-Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**。想让它跟着每小时更新，
+Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**。想让它跟着更新，
 把该 profile 的「更新间隔」调小（Verge 默认很长），或者每次手动点一下更新。
 
 ## fast 是怎么筛的（为什么它不是"国内实测"）
@@ -100,28 +101,52 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
 > 另外，测速过滤只保证"发布那一刻是活的"；节点在这之后随时会死，客户端 `自动选择`
 > 那个 url-test 组的健康检查照样得留着（它负责在你手动更新订阅之前兜住这种情况）。
 
-## 筛选标准（默认值都在 workflow 的参数里，改一行就行）
+## 筛选标准（当前口径：**只去死节点**，2026-09-25 起）
 
-| 参数 | 默认 | 说明 |
+这条流水线现在只干一件事：把**死的 / 连不上外网的**节点扔掉。**不卡延迟上限、不测下载带宽。**
+
+为什么收窄：这份产物还要被下游（从国内视角再筛一遍的那一层）消费。在境外机房按速度砍掉一批，
+等于用"境外机房的尺度"替国内做决定 —— 把可能好用的节点提前扔了。**粗筛（便宜）放这里，
+精筛（贵、但量得到「国内 → 节点」那一跳）交给下游。**
+
+| 参数 | 当前值 | 说明 |
 |---|---|---|
-| `--latency-url` / `--latency-timeout` | `http://www.gstatic.com/generate_204` / 3000ms | 延迟轮探测地址（明文 http，无 TLS 握手，量的是纯链路往返），超时即淘汰 |
-| `--max-latency` | 2000ms | 延迟超过就淘汰 |
-| `--speed-url` / `--speed-url-fallback` | Google CDN 大文件 / Cloudflare speed | 下载测速目标。主目标跟延迟轮同属 Google（能通 gstatic 的节点基本都能通它）；主目标**一个字节都读不到**时才换兜底 |
-| `--speed-bytes` / `--speed-timeout` | 512KB / 10s | 每个存活节点真下 512KB |
-| `--min-speed-kbps` | 100 KB/s | 下载速度低于就淘汰（"速度不足"和"下载失败"分开记，日志里能看到各占多少） |
-| `--speed-limit` | 800 | 只给延迟最好的 800 个做下载测速（流量与时间可控） |
-| `--max-nodes` | 600 | 最终订阅最多 600 个节点（按延迟从好到差排） |
-| `--min-keep` | 0 | 存活少于 N 个就**判失败、不发布**（release 里保住上一版）。**0 = 不设保底**：宁可少而准，也不为凑数塞进半死不活的节点 |
-| `--verify-url` / `--verify-expected` / `--verify-timeout` | 空（不跑）/ 204 / 3000ms | 可选的**复核轮**：在延迟轮之后再单独探一次并强制要求回 204，捞"握手 200 但流量不通"的假通节点。留空 = 不跑这一轮 |
-| `--concurrency` | 64 | 延迟轮并发 |
+| `--latency-url` / `--latency-timeout` | `http://www.gstatic.com/generate_204` / 3000ms | **第一轮（连通性）**：明文 http，量的是纯链路往返；超时即淘汰。**故意不传 `--latency-expected`** = 不校验状态码（宽进） |
+| `--max-latency` | 8000ms | 比 `--latency-timeout` 大 → **等于不限延迟**（超时那一刻已经判死，这条线永远碰不到）。写 8000 只是留个显式上限防手滑 |
+| `--verify-url` / `--verify-expected` / `--verify-timeout` | `http://cp.cloudflare.com/generate_204` / 204 / 3000ms | **第二轮（可用性）**：换一个**不同厂商**的端点再探一次，并强制要求真回 204。两轮**都必须通过** —— ①宽②严，既不误杀慢节点，也挡得住"握手 200、真跑流量就废"的假通节点 |
+| `--speed-limit` | **0** | **完全不测下载带宽**（判据只剩连通性）。设成 >0 会恢复"给延迟最好的 N 个做下载测速" |
+| `--speed-url` / `--speed-bytes` / `--speed-timeout` / `--min-speed-kbps` | 未传 | 只在 `--speed-limit > 0` 时才有意义 |
+| `--max-nodes` | **0** | **数量不限**（活下来多少留多少）。以前是 600，那是给"按速度排序取最快的一批"用的；现在不按速度排了，再按延迟截断等于偷偷加了别的筛选条件 |
+| `--min-keep` | 0 | 存活少于 N 个就**判失败、不发布**（release 里保住上一版）。0 = 不设保底 |
+| `--concurrency` | 64 | 两轮的并发 |
 
-淘汰原因都会写进 `dist/filter-stats.json` 和 Actions 日志（哪个节点、什么原因）。
+淘汰原因都会写进 `dist/filter-stats.json` 和 Actions 日志。
+
+> 产物头部与 release notes 里的口径说明是**按参数自动生成**的（`filter_profile()`），
+> 改了参数不会出现"说明书和实际不一致"。以前那段是硬编码文字，参数一改就成了假的 ——
+> 排查时会拿一份错误的说明书去对数据。
+
+### 想恢复"按速度筛"（历史口径）
+
+脚本能力都还在，只要在 workflow 那段命令行里加回来：
+
+```
+--max-latency 2000 \                    # 卡延迟上限（就不等于"不限"了）
+--speed-url "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" \
+--speed-url-fallback "https://speed.cloudflare.com/__down?bytes={bytes}" \
+--speed-bytes 524288 --speed-timeout 10 --min-speed-kbps 100 \
+--speed-limit 800 \                     # >0 才会跑下载测速
+--max-nodes 600 \                       # 按延迟排序取前 600
+```
+
 
 ## 几个必须知道的点
 
-1. **测速是在 GitHub runner（境外机房）上做的**：它回答的是"这个节点活着、能跑流量"，
-   不等于"从国内连它也快"。但"死的 / 半死不活的"确实会被清掉 —— 这正是要的效果。
-   想按国内网络的口味筛，在本机跑 `tools/test_nodes.py`（见下），两者不冲突。
+1. **探测是在 GitHub runner（境外机房）上做的**：两个 `generate_204` 端点都通，只说明
+   "这个节点活着、能出网"，不等于"从国内连它也快"。但"死的 / 连不上外网的"确实会被清掉 ——
+   这正是要的效果：**这一层只做便宜的粗筛**（GitHub 公开仓库的 Actions 不限量）。
+   国内视角的精筛由下游那一层负责（它从国内机房再探一遍，量的才是「你 → 节点」那一跳）。
+   想在自己网络下复筛，跑 `tools/local_cn_filter.py`（见文末）。
 2. **IPv6 节点**：runner 没有 IPv6 出口，IPv6 字面量地址的节点在那边测不了。
    默认 `--ipv6-policy keep`：跳过测速、原样保留（不冤枉好节点）；如果你本机没有 IPv6、
    想让它们彻底消失，改成 `drop`。（实测整池 5845 个节点里只有 **2** 个真 IPv6 字面量，
@@ -142,10 +167,11 @@ Clash Verge 里：**订阅 → 新建 → 粘贴 best.yaml 地址 → 导入**�
    另外：新源如果套了别的 GitHub 镜像前缀（不是 `github.boki.moe` / `seep.eu.org`），
    把前缀加进 `tools/fetch_node_pool.py` 的 `MIRROR_PREFIXES` 就能让它在 runner 上走直连；
    不加也只是拉得慢一点，不影响结果。
-6. **下载测速用的是 listeners**：给每个存活节点开一个本机 HTTP 入站（`proxy:` 绑定到该节点），
+6. **下载测速用的是 listeners**（当前 `--speed-limit 0`，**未启用**，留作后续参考）：
+   给每个存活节点开一个本机 HTTP 入站（`proxy:` 绑定到该节点），
    再经它真下 512KB。这是唯一能区分"能握手但传不动"（免费池里很常见）的方法 ——
    mihomo 的 delay 接口只量首字节耗时，不是带宽。
-7. **为什么测速目标选 Google CDN（第一次跑踩的坑）**：最初用 `speed.cloudflare.com`，
+7. **为什么测速目标选 Google CDN（第一次跑踩的坑；仅当 `--speed-limit > 0` 时才有意义）**：最初用 `speed.cloudflare.com`，
    在 runner 上实测 **800 个存活节点 0 个通过** —— 那些节点的出口连 Cloudflare 普遍超时
    （日志里全是 `context deadline exceeded`），而不是节点本身不能用。换成 `dl.google.com`
    的大文件（与延迟轮的 gstatic 同属 Google）后同一批节点 **761/800 通过**。
@@ -211,7 +237,26 @@ python tools/local_cn_filter.py --limit 300
 > 免费池的服务器绝大多数**从国内连不上**。所以本机筛出来的清单很短是正常的（短但准）；
 > 免费池本来每小时都在换，清单短不影响用，下一次再跑就是了。
 
-## 保活（公开仓库定时任务会被自动停用的坑）
+## 定时任务的可靠性（两个坑，都实测过）
+
+### 1. schedule 会被限流：写的是每小时，实测 1.5~5.5 小时才跑一次
+
+`cron: '47 * * * *'` 看着是每小时，但 GitHub 对**公开仓库**的 schedule 触发**不保证准时**。
+2026-09-25 实测本 workflow 的运行记录：
+
+| 时间（北京） | 事件 | 结果 |
+|---|---|---|
+| 06:13 | workflow_dispatch（手动触发） | success |
+| 07:31 | schedule | **failure**（只有最后"发布到 release"那步挂了，见 workflow 里的说明） |
+| 09:54 | schedule | success |
+
+15:10 去查，release 资产的 `Last-Modified` 还停在 **09:54** —— **5 小时没更新**。
+改 cron 表达式没用，这是平台对公开仓库 schedule 的调度行为。
+
+> 所以**别把它当成"每小时必更"的源**。想要准时的节奏，得靠别的调度（见下一条的前提）。
+> 另外这也解释了"节点时好时坏"里的一部分：不是节点变了，是列表没跟着换。
+
+### 2. 60 天无提交 → schedule 被自动停用
 
 GitHub 对**公开仓库**的定时任务：连续 60 天没有任何提交活动，`schedule` 会被自动停用。
 这条流水线同样只更新 release 资产、不产生 commit，所以最后一步会**按需**提交
