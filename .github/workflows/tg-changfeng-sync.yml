@@ -1,0 +1,171 @@
+name: tg-changfeng-sync
+
+# 把长风分享频道（https://t.me/s/changfengchannel）的订阅链接转成固定地址。
+#
+#   https://github.com/haolive/changfeng/releases/download/changfeng/clash.yaml
+#   https://github.com/haolive/changfeng/releases/download/changfeng/singbox.json
+#   https://github.com/haolive/changfeng/releases/download/changfeng/base64.txt
+#
+# 频道里每条消息的 nodebuf 链接都不一样，没法收藏；这里每小时把**最新一条**
+# 的内容原样搬到这个固定地址，客户端只认这一个链接就行。
+#
+# 内容零加工：上游给什么字节就存什么字节（详见 tg_changfeng/README.md）。
+# 与仓库里已有的 refresh-nodes（多订阅合并测速）互不干扰：
+#   - 不读 多订阅合并配置.yaml，不 import tools/ 下任何脚本
+#   - 用自己的 release tag changfeng（已有的是 best / fast / desk）
+
+on:
+  schedule:
+    - cron: '23 * * * *'        # 每小时第 23 分钟（GitHub 用 UTC，偏移固定）
+                                  # 刻意避开 47 分，那是 refresh-nodes 的位置，
+                                  # 两小时任务错开跑，免费 runner 排队也错开
+                                  # ⚠ 定时触发不保证准时：免费 runner 高峰期可能延迟几十分钟
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '强制覆盖上传（忽略内容哈希比对）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write               # 创建 / 更新 release 资产需要
+
+concurrency:
+  group: tg-changfeng-sync
+  cancel-in-progress: false     # 不要打断上一次：跑完的那次才是最后一次成功发布
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖（PyYAML 可选，装了才做完整 YAML 结构校验）
+        run: pip install --quiet pyyaml
+
+      # 解析器改了格式就早点炸，别等到发布出去才发现抓错了链接
+      - name: 离线自测
+        env:
+          PYTHONUTF8: '1'
+        run: python tg_changfeng/sync_changfeng.py --selftest
+
+      # 拿上一版的 latest.json 下来做哈希比对，内容没变就不必重建 release 资产
+      - name: 取上一版元信息
+        id: prev
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          mkdir -p dist/prev
+          if gh release download changfeng --pattern latest.json --dir dist/prev --clobber 2>/dev/null; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"   # 首次运行，按「有变化」处理
+            echo "没有上一版 latest.json（首次运行或 release 尚未创建）"
+          fi
+
+      - name: 抓频道并生成固定产物
+        env:
+          PYTHONUTF8: '1'                          # 日志里有中文，别被 locale 坑成乱码
+        run: |
+          set -euo pipefail
+          prev=""
+          if [ "${{ steps.prev.outputs.have }}" = "true" ]; then
+            prev="--prev dist/prev/latest.json"
+          fi
+          python tg_changfeng/sync_changfeng.py \
+            --out dist \
+            --repo "${{ github.repository }}" \
+            --tag changfeng \
+            --max-pages 2 \
+            --state-file tg_changfeng-last-sync.json \
+            $prev | tee dist/run.log
+
+      # 脚本已经做过结构校验（proxies 非空 / 合法 JSON / base64 可解）。
+      # 这里再用真内核兜一层：上游偶尔会发出字段非法的配置，但本项目是**镜像转发**，
+      # 不该因此拒绝发布，所以只告警不阻断 —— 内容原样保留，问题在上游。
+      - name: mihomo 内核复核（仅告警）
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          url=$(curl -sSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest \
+                | jq -r '.assets[].browser_download_url' \
+                | grep -E 'linux-amd64-v[0-9]' | head -n1)
+          if [ -z "$url" ]; then
+            echo "::warning::没找到 mihomo 下载地址，跳过内核复核"
+            exit 0
+          fi
+          curl -sSL -o mihomo.gz "$url" && gunzip -f mihomo.gz && chmod +x mihomo
+          geodir=$(mktemp -d); ok=1
+          for f in geosite.dat geoip.dat; do
+            curl -sSL --max-time 90 -o "$geodir/$f" \
+              "https://cdn.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/$f" || ok=0
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::warning::geo 数据没拉全，跳过内核复核（与产物本身无关）"
+            exit 0
+          fi
+          if ./mihomo -t -f dist/clash.yaml -d "$geodir"; then
+            echo "mihomo -t 通过"
+          else
+            echo "::warning::mihomo -t 未通过，但本项目只做镜像转发，内容按上游原样发布"
+          fi
+
+      - name: 发布到 release（tag changfeng）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          changed=$(cat dist/.changed)
+          if [ "$changed" = "no" ] && [ "$FORCE" != "true" ]; then
+            echo "内容与上次一致，跳过上传（手动触发时勾 force 可强制覆盖）"
+            echo "固定地址仍然可用："
+            echo "  https://github.com/${{ github.repository }}/releases/download/changfeng/clash.yaml"
+            exit 0
+          fi
+
+          # release 只放产物：不写标题文案、不写说明正文，tag 名就是标题。
+          # 固定地址写在哪也不影响使用，客户端只认 assets 里的 clash.yaml。
+          gh release view changfeng >/dev/null 2>&1 || gh release create changfeng \
+            --latest=false
+          gh release upload changfeng \
+            dist/clash.yaml dist/singbox.json dist/base64.txt \
+            dist/links.txt dist/latest.json \
+            --clobber
+
+          echo "已更新 https://github.com/${{ github.repository }}/releases/download/changfeng/clash.yaml"
+
+      # 保活：公开仓库连续 60 天没有提交活动，schedule 会被 GitHub 自动停用。
+      # 每次内容变化都会提交；万一上游长期不更新，脚本会按 7 天间隔兜底提交一次。
+      - name: 保活提交（按需）
+        run: |
+          set -euo pipefail
+          if [ "$(cat dist/.keepalive)" != "yes" ]; then
+            echo "距上次提交不到 7 天，跳过（保持提交历史干净）"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tg_changfeng-last-sync.json
+          if git diff --cached --quiet; then
+            echo "文件内容没变，跳过提交"
+          else
+            git commit -m "每小时同步"
+            git push || echo "::warning::git push 失败（仓库可能同时有别的改动），下次运行再试"
+          fi
+
+      - name: 保存运行日志（排查用）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tg-changfeng-log
+          path: dist/
+          retention-days: 7
+          if-no-files-found: ignore
