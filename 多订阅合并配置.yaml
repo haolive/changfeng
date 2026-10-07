@@ -85,21 +85,6 @@ proxy-providers:
     override:
       additional-prefix: "S3 |"
       skip-cert-verify: true
-  s4-free-nodes:
-    type: http
-    path: ./providers/s4_free_nodes.yaml
-    url: "https://github.boki.moe/https://raw.githubusercontent.com/zhuhaiuk/free-nodes/main/clash_config.yaml"
-    interval: 3600
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: "https://www.gstatic.com/generate_204"
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: "S4 |"
-      skip-cert-verify: true
   s5-sub445569:
     type: http
     path: ./providers/s5_sub445569.yaml
@@ -121,37 +106,6 @@ proxy-providers:
       lazy: true
     override:
       additional-prefix: "S5 |"
-      skip-cert-verify: true
-  s6-FreeSubsCheck:
-    type: http
-    path: ./providers/s6_FreeSubsCheck.yaml
-    url: "https://github.boki.moe/https://raw.githubusercontent.com/kooker/FreeSubsCheck/main/mihomo.yaml"
-    interval: 1800            # 该源是「可用性检测」仓库，只留当时通过的节点、轮换很快
-                              #（实测一小时里 1->7 个），所以比别的源拉得勤一些
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: "https://www.gstatic.com/generate_204"
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: "S6 |"
-      skip-cert-verify: true
-  s7-proxypool:
-    type: http
-    path: ./providers/s7_proxypool.yaml
-    url: https://github.boki.moe/https://raw.githubusercontent.com/snakem982/proxypool/main/source/clash-meta-2.yaml
-    interval: 3600
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: S7 |
       skip-cert-verify: true
   s8-ai-crawler-v2:
     type: http
@@ -178,68 +132,6 @@ proxy-providers:
       lazy: true
     override:
       additional-prefix: S8 |
-      skip-cert-verify: true
-  s9-free18:
-    type: http
-    path: ./providers/s9_free18.yaml
-    url: https://github.boki.moe/https://raw.githubusercontent.com/free18/v2ray/refs/heads/main/c.yaml
-    interval: 3600
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: S9 |
-      skip-cert-verify: true
-  s10-airport:
-    type: http
-    path: ./providers/s10_airport.yaml
-    url: https://github.boki.moe/https://raw.githubusercontent.com/dongchengjie/airport/refs/heads/main/subs/merged/tested_within.yaml
-    interval: 3600
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 300
-      timeout: 2000
-      lazy: true
-    override:
-      additional-prefix: S10 |
-      skip-cert-verify: true
-
-# ---------------- 广告规则集 ----------------
-  s11-Vanic24:
-    type: http
-    path: ./providers/s11_Vanic24.yaml
-    url: https://sub.789.st/sub?target=clash&url=https%3A%2F%2Fraw.githubusercontent.com%2FVanic24%2FVPN%2Frefs%2Fheads%2Fmain%2F8EB&insert=false
-    interval: 3600
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 300
-      timeout: 3000
-      lazy: true
-    override:
-      additional-prefix: S11 |
-      skip-cert-verify: true
-  s12-翻墙世界的梯子:
-    type: http
-    path: ./providers/s12_翻墙世界的梯子.yaml
-    url: https://sub.789.st/sub?target=clash&url=https%3A%2F%2Fhk.wxgqlfx.top%2Fwxsx&insert=false
-    interval: 3600
-    proxy: DIRECT
-    health-check:
-      enable: true
-      url: https://www.gstatic.com/generate_204
-      interval: 300
-      timeout: 3000
-      lazy: true
-    override:
-      additional-prefix: S12 |
       skip-cert-verify: true
 rule-providers:
   # 名字里的【配置已加载】是给日志看的中文标记：内核启动/重载时会打印
