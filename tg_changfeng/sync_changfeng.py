@@ -43,6 +43,7 @@ import base64
 import binascii
 import hashlib
 import html as html_mod
+import http.client
 import json
 import os
 import re
@@ -148,7 +149,10 @@ class Fetcher:
             try:
                 with self._opener.open(url, timeout=self.timeout) as resp:
                     return resp.read()
-            except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            # 注意：IncompleteRead（响应断流，实测 10-10 抓频道挂过）的父类是
+            # http.client.HTTPException，既不是 OSError 也不是 URLError —— 不加这一条
+            # 会让断流穿透重试直接炸掉整轮（Traceback sync_changfeng.py:150 resp.read()）。
+            except (urllib.error.URLError, OSError, TimeoutError, http.client.HTTPException) as exc:
                 last = exc
                 if attempt < self.retries:
                     wait = self.backoff * attempt
