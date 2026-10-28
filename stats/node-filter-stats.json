@@ -1,19 +1,18 @@
 {
-  "updated_at": "2026-10-27T16:52:57Z",
-  "update_reason": "坏节点签名变化 3f86f94dd9c2da34 -> 30254dcb8b35795f",
-  "bad_signature": "30254dcb8b35795f",
+  "updated_at": "2026-10-28T00:45:47Z",
+  "update_reason": "坏节点签名变化 30254dcb8b35795f -> ebf55650a05f2186",
+  "bad_signature": "ebf55650a05f2186",
   "dropped_reasons": {
     "拉取失败": 1,
-    "重复节点": 31,
-    "延迟测试失败": 198,
-    "延迟过高": 3,
-    "速度不足": 17,
-    "下载失败": 6
+    "重复节点": 41,
+    "延迟测试失败": 171,
+    "速度不足": 20,
+    "下载失败": 4
   },
   "dropped_examples": {},
   "quoted_scalars": [],
   "quoted_count": 0,
-  "upstream_total": 345,
-  "kept": 120,
+  "upstream_total": 512,
+  "kept": 297,
   "note": "签名变化 = 上游夹带的非法节点集合变了（新出现了坏节点，或旧的消失了）。重名不计入签名（那只是常规噪音）。"
 }
