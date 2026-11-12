@@ -220,6 +220,11 @@ def validate_node(node):
         sid = scalar(map_get(ro, 'short-id'))
         if sid and not short_id_ok(sid):
             return False, 'reality short-id 非法(%r)' % sid[:24]
+        # 纯数字的 short-id 还有第二类坑：不一定非法，但**会被 Go 改写**。
+        # 012 → 八进制 10 → "10"、00000000 → "0"，节点不报错却永远连不上。
+        # 这类值救不回来（原始十六进制已经丢了），只能丢掉。
+        if sid and sid.isdigit():
+            return False, 'reality short-id 纯数字(%r)' % sid[:24]
     return True, ''
 
 
@@ -465,6 +470,14 @@ proxies:
     reality-opts:
       public-key: Uvj5H9pDJP0HX2bN7NN7sCQwVCrC5N2NbKf-yuy1ikE
   - {name: fp-unsafe-plain, type: ss, server: 192.0.2.10, port: 8388, cipher: aes-128-gcm, password: q, client-fingerprint: unsafe}
+  - name: trap-sid-numeric
+    type: vless
+    server: 192.0.2.11
+    port: 443
+    uuid: 57beeeb0-03fc-4fc9-94da-7604488a7134
+    reality-opts:
+      public-key: CGR1XzsRlvVmgeAiqLiA9SwEnxgtkbmANavMhmn6IVc
+      short-id: 00000000
 """
 
 
@@ -483,6 +496,13 @@ def selftest():
             fails.append('输出里不该有 %r' % banned)
     if not any('public-key' in k for k in stats['dropped']):
         fails.append('没记录 public-key 丢弃原因：%s' % stats['dropped'])
+    # 纯数字 short-id：不一定非法，但会被 Go 改写成别的值（012→"10"、00000000→"0"）。
+    # 这种节点必须剔除 —— 它在本仓库产物里是安全的（dump 时会加引号），可一旦用户
+    # 把订阅丢进第三方转换器（sub.789.st 之类会剥掉引号），整个配置就直接解析失败。
+    if not any('纯数字' in k for k in stats['dropped']):
+        fails.append('没剔除纯数字 short-id：%s' % stats['dropped'])
+    if 'trap-sid-numeric' in out:
+        fails.append('纯数字 short-id 的节点不该出现在输出里')
     # 指纹修复：3 个需要 uTLS 的（补上）+ 1 个写了 unsafe 的普通节点（改掉）
     if stats.get('fingerprint_fixed_count') != 4:
         fails.append('指纹修复数=%s 预期 4' % stats.get('fingerprint_fixed_count'))
