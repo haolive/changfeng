@@ -1,7 +1,7 @@
 {
-  "committed_at": "2026-11-09T07:02:32+08:00",
-  "post_id": 45944,
-  "update_date": "2026-10-28 08:00",
-  "clash_sha256": "bf69ec3340499c5603b8392878c66e205edc835d408340348617636d056a3074",
+  "committed_at": "2026-11-16T09:11:05+08:00",
+  "post_id": 45970,
+  "update_date": null,
+  "clash_sha256": "a8238e87ffa9bb881a99ce418c54733d0ded03441276bbbe0d1fc18aa093794b",
   "fixed_url": "https://github.com/haolive/changfeng/releases/download/changfeng/clash.yaml"
 }
