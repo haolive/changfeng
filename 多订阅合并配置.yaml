@@ -85,9 +85,9 @@ proxy-providers:
     override:
       additional-prefix: "S3 |"
       skip-cert-verify: true
-  s5-sub445569:
+  s4-sub445569:
     type: http
-    path: ./providers/s5_sub445569.yaml
+    path: ./providers/s4_sub445569.yaml
     url: "https://sub.445569.xyz/"
     interval: 1800            # 该源节点轮换快（实测一小时里 17->29 个），缩短到 30 分钟
     proxy: DIRECT             # 实测直连 200/182127 字节（2026-09-23，带 clash UA）
@@ -105,11 +105,11 @@ proxy-providers:
       timeout: 2000
       lazy: true
     override:
-      additional-prefix: "S5 |"
+      additional-prefix: "S4 |"
       skip-cert-verify: true
-  s8-ai-crawler-v2:
+  s5-ai-crawler-v2:
     type: http
-    path: ./providers/s8_aicrawler.yaml
+    path: ./providers/s5_aicrawler.yaml
     # 直连上游 merged.yaml。它每小时重生成，时不时夹带**字段非法**的节点
     # （2026-09-23 实测：第 2896 个的 reality public-key 写成 enabled、
     #  第 3148 个的 short-id 是裸标量被 YAML 当成科学计数法）。
@@ -131,7 +131,22 @@ proxy-providers:
       timeout: 2000
       lazy: true
     override:
-      additional-prefix: S8 |
+      additional-prefix: S5 |
+      skip-cert-verify: true
+  s6-free-proxy-airport:
+    type: http
+    path: ./providers/s6_free-proxy-airport.yaml
+    url: https://sunmiao4458.github.io/free-proxy-airport/clash.yaml
+    interval: 3600
+    proxy: DIRECT
+    health-check:
+      enable: true
+      url: https://www.gstatic.com/generate_204
+      interval: 300
+      timeout: 3000
+      lazy: true
+    override:
+      additional-prefix: S6 |
       skip-cert-verify: true
 rule-providers:
   # 名字里的【配置已加载】是给日志看的中文标记：内核启动/重载时会打印
